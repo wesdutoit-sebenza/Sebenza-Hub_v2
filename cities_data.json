@@ -1,0 +1,1339 @@
+[
+  {
+    "province": "Eastern Cape",
+    "cities": [
+      {
+        "city": "Addo",
+        "postalCode": "6105"
+      },
+      {
+        "city": "Alexandria",
+        "postalCode": "6185"
+      },
+      {
+        "city": "Aliwal North",
+        "postalCode": "9750"
+      },
+      {
+        "city": "Bathurst",
+        "postalCode": "6166"
+      },
+      {
+        "city": "Beacon Bay",
+        "postalCode": "5241"
+      },
+      {
+        "city": "Bhisho",
+        "postalCode": "5605"
+      },
+      {
+        "city": "Burgersdorp",
+        "postalCode": "9744"
+      },
+      {
+        "city": "Butterworth",
+        "postalCode": "4960"
+      },
+      {
+        "city": "Cala",
+        "postalCode": "5455"
+      },
+      {
+        "city": "Cradock",
+        "postalCode": "5880"
+      },
+      {
+        "city": "Despatch",
+        "postalCode": "6220"
+      },
+      {
+        "city": "Dordrecht",
+        "postalCode": "5435"
+      },
+      {
+        "city": "East London",
+        "postalCode": "5200"
+      },
+      {
+        "city": "Fort Beaufort",
+        "postalCode": "5720"
+      },
+      {
+        "city": "Gonubie",
+        "postalCode": "5257"
+      },
+      {
+        "city": "Gqeberha (Port Elizabeth) Central",
+        "postalCode": "6000"
+      },
+      {
+        "city": "Graaff-Reinet",
+        "postalCode": "6280"
+      },
+      {
+        "city": "Humansdorp",
+        "postalCode": "6300"
+      },
+      {
+        "city": "Idutywa",
+        "postalCode": "5000"
+      },
+      {
+        "city": "Jeffreys Bay",
+        "postalCode": "6330"
+      },
+      {
+        "city": "Kenton-on-Sea",
+        "postalCode": "6191"
+      },
+      {
+        "city": "King William\u2019s Town (Qonce)",
+        "postalCode": "5600"
+      },
+      {
+        "city": "Kirkwood",
+        "postalCode": "6120"
+      },
+      {
+        "city": "Libode",
+        "postalCode": "5160"
+      },
+      {
+        "city": "Maclear (Nqanqarhu)",
+        "postalCode": "5480"
+      },
+      {
+        "city": "Makhanda (Grahamstown)",
+        "postalCode": "6139"
+      },
+      {
+        "city": "Middelburg EC",
+        "postalCode": "5900"
+      },
+      {
+        "city": "Molteno",
+        "postalCode": "5500"
+      },
+      {
+        "city": "Mthatha",
+        "postalCode": "5099"
+      },
+      {
+        "city": "Newton Park",
+        "postalCode": "6045"
+      },
+      {
+        "city": "Ngcobo",
+        "postalCode": "5050"
+      },
+      {
+        "city": "Port Alfred",
+        "postalCode": "6170"
+      },
+      {
+        "city": "Queenstown (Komani)",
+        "postalCode": "5320"
+      },
+      {
+        "city": "Somerset East",
+        "postalCode": "5850"
+      },
+      {
+        "city": "St Francis Bay",
+        "postalCode": "6312"
+      },
+      {
+        "city": "Steynsburg",
+        "postalCode": "5920"
+      },
+      {
+        "city": "Stutterheim",
+        "postalCode": "4930"
+      },
+      {
+        "city": "Tarkastad",
+        "postalCode": "5370"
+      },
+      {
+        "city": "Uitenhage (Kariega)",
+        "postalCode": "6229"
+      },
+      {
+        "city": "Walmer",
+        "postalCode": "6070"
+      }
+    ]
+  },
+  {
+    "province": "Free State",
+    "cities": [
+      {
+        "city": "Bethlehem",
+        "postalCode": "9700"
+      },
+      {
+        "city": "Bloemfontein",
+        "postalCode": "9301"
+      },
+      {
+        "city": "Boshof Road Area",
+        "postalCode": "8340"
+      },
+      {
+        "city": "Botshabelo",
+        "postalCode": "9781"
+      },
+      {
+        "city": "Brandfort (Theunissen)",
+        "postalCode": "9405"
+      },
+      {
+        "city": "Clocolan",
+        "postalCode": "9735"
+      },
+      {
+        "city": "Ficksburg",
+        "postalCode": "9730"
+      },
+      {
+        "city": "Frankfort",
+        "postalCode": "9830"
+      },
+      {
+        "city": "Harrismith",
+        "postalCode": "9880"
+      },
+      {
+        "city": "Heilbron",
+        "postalCode": "9650"
+      },
+      {
+        "city": "Heuwelsig",
+        "postalCode": "9301"
+      },
+      {
+        "city": "Kroonstad",
+        "postalCode": "9500"
+      },
+      {
+        "city": "Ladybrand",
+        "postalCode": "9745"
+      },
+      {
+        "city": "Langenhoven Park",
+        "postalCode": "9301"
+      },
+      {
+        "city": "Marquard",
+        "postalCode": "9610"
+      },
+      {
+        "city": "Parys",
+        "postalCode": "9585"
+      },
+      {
+        "city": "Petrus Steyn (Mokwallo)",
+        "postalCode": "9640"
+      },
+      {
+        "city": "Phuthaditjhaba",
+        "postalCode": "9866"
+      },
+      {
+        "city": "Potchefstroom Road Area",
+        "postalCode": "2520"
+      },
+      {
+        "city": "Reitz",
+        "postalCode": "9810"
+      },
+      {
+        "city": "Riebeeckstad",
+        "postalCode": "9459"
+      },
+      {
+        "city": "Rosendal",
+        "postalCode": "9720"
+      },
+      {
+        "city": "Sasolburg",
+        "postalCode": "1947"
+      },
+      {
+        "city": "Senekal",
+        "postalCode": "9600"
+      },
+      {
+        "city": "Thaba Nchu",
+        "postalCode": "9780"
+      },
+      {
+        "city": "Universitas",
+        "postalCode": "9301"
+      },
+      {
+        "city": "Vanderbijlpark SE 3",
+        "postalCode": "1911"
+      },
+      {
+        "city": "Villiers",
+        "postalCode": "9840"
+      },
+      {
+        "city": "Vrede",
+        "postalCode": "9835"
+      },
+      {
+        "city": "Warden",
+        "postalCode": "9890"
+      },
+      {
+        "city": "Welkom",
+        "postalCode": "9459"
+      },
+      {
+        "city": "Winburg",
+        "postalCode": "9420"
+      }
+    ]
+  },
+  {
+    "province": "Gauteng",
+    "cities": [
+      {
+        "city": "Alberton",
+        "postalCode": "1449"
+      },
+      {
+        "city": "Arcadia",
+        "postalCode": "0007"
+      },
+      {
+        "city": "Atteridgeville",
+        "postalCode": "0008"
+      },
+      {
+        "city": "Auckland Park",
+        "postalCode": "2092"
+      },
+      {
+        "city": "Bedfordview",
+        "postalCode": "2008"
+      },
+      {
+        "city": "Benoni",
+        "postalCode": "1501"
+      },
+      {
+        "city": "Boksburg",
+        "postalCode": "1459"
+      },
+      {
+        "city": "Braamfontein",
+        "postalCode": "2001"
+      },
+      {
+        "city": "Brakpan",
+        "postalCode": "1541"
+      },
+      {
+        "city": "Bronkhorstspruit",
+        "postalCode": "1020"
+      },
+      {
+        "city": "Brooklyn",
+        "postalCode": "0181"
+      },
+      {
+        "city": "Bryanston",
+        "postalCode": "2191"
+      },
+      {
+        "city": "Bryanston East",
+        "postalCode": "2191"
+      },
+      {
+        "city": "Carletonville",
+        "postalCode": "2499"
+      },
+      {
+        "city": "Centurion",
+        "postalCode": "0157"
+      },
+      {
+        "city": "Cullinan",
+        "postalCode": "1000"
+      },
+      {
+        "city": "Diepsloot",
+        "postalCode": "2189"
+      },
+      {
+        "city": "Edenvale",
+        "postalCode": "1610"
+      },
+      {
+        "city": "Faerie Glen",
+        "postalCode": "0081"
+      },
+      {
+        "city": "Fourways",
+        "postalCode": "2055"
+      },
+      {
+        "city": "Garsfontein",
+        "postalCode": "0042"
+      },
+      {
+        "city": "Germiston",
+        "postalCode": "1401"
+      },
+      {
+        "city": "Greenside",
+        "postalCode": "2193"
+      },
+      {
+        "city": "Hatfield",
+        "postalCode": "0083"
+      },
+      {
+        "city": "Heidelberg",
+        "postalCode": "1441"
+      },
+      {
+        "city": "Irene",
+        "postalCode": "0062"
+      },
+      {
+        "city": "Johannesburg CBD",
+        "postalCode": "2000"
+      },
+      {
+        "city": "Kempton Park",
+        "postalCode": "1619"
+      },
+      {
+        "city": "Krugersdorp",
+        "postalCode": "1739"
+      },
+      {
+        "city": "Lenasia",
+        "postalCode": "1821"
+      },
+      {
+        "city": "Lynnwood",
+        "postalCode": "0081"
+      },
+      {
+        "city": "Mamelodi",
+        "postalCode": "0122"
+      },
+      {
+        "city": "Melville",
+        "postalCode": "2109"
+      },
+      {
+        "city": "Menlyn",
+        "postalCode": "0063"
+      },
+      {
+        "city": "Meyerton",
+        "postalCode": "1960"
+      },
+      {
+        "city": "Midrand",
+        "postalCode": "1685"
+      },
+      {
+        "city": "Moreleta Park",
+        "postalCode": "0044"
+      },
+      {
+        "city": "Newtown",
+        "postalCode": "2001"
+      },
+      {
+        "city": "Northcliff",
+        "postalCode": "2195"
+      },
+      {
+        "city": "Pretoria CBD",
+        "postalCode": "0001"
+      },
+      {
+        "city": "Randburg",
+        "postalCode": "2194"
+      },
+      {
+        "city": "Randfontein",
+        "postalCode": "1759"
+      },
+      {
+        "city": "Roodepoort",
+        "postalCode": "1724"
+      },
+      {
+        "city": "Rosebank",
+        "postalCode": "2196"
+      },
+      {
+        "city": "Sandton",
+        "postalCode": "2196"
+      },
+      {
+        "city": "Soweto",
+        "postalCode": "1800"
+      },
+      {
+        "city": "Springs",
+        "postalCode": "1559"
+      },
+      {
+        "city": "Sunnyside",
+        "postalCode": "0002"
+      },
+      {
+        "city": "Tembisa",
+        "postalCode": "1632"
+      },
+      {
+        "city": "Vanderbijlpark",
+        "postalCode": "1911"
+      },
+      {
+        "city": "Vereeniging",
+        "postalCode": "1939"
+      },
+      {
+        "city": "Waterkloof",
+        "postalCode": "0181"
+      },
+      {
+        "city": "Westonaria",
+        "postalCode": "1780"
+      },
+      {
+        "city": "Woodmead",
+        "postalCode": "2191"
+      }
+    ]
+  },
+  {
+    "province": "KwaZulu-Natal",
+    "cities": [
+      {
+        "city": "Amanzimtoti",
+        "postalCode": "4126"
+      },
+      {
+        "city": "Ballito",
+        "postalCode": "4399"
+      },
+      {
+        "city": "Chatsworth",
+        "postalCode": "4092"
+      },
+      {
+        "city": "Durban Central",
+        "postalCode": "4000"
+      },
+      {
+        "city": "Durban North",
+        "postalCode": "4051"
+      },
+      {
+        "city": "Empangeni",
+        "postalCode": "3880"
+      },
+      {
+        "city": "Estcourt",
+        "postalCode": "3310"
+      },
+      {
+        "city": "Greytown",
+        "postalCode": "3250"
+      },
+      {
+        "city": "Hibberdene",
+        "postalCode": "4220"
+      },
+      {
+        "city": "Hillcrest",
+        "postalCode": "3650"
+      },
+      {
+        "city": "Howick",
+        "postalCode": "3290"
+      },
+      {
+        "city": "Isipingo",
+        "postalCode": "4133"
+      },
+      {
+        "city": "Kloof",
+        "postalCode": "3610"
+      },
+      {
+        "city": "Kokstad",
+        "postalCode": "4700"
+      },
+      {
+        "city": "La Lucia",
+        "postalCode": "4051"
+      },
+      {
+        "city": "Ladysmith",
+        "postalCode": "3370"
+      },
+      {
+        "city": "Margate",
+        "postalCode": "4275"
+      },
+      {
+        "city": "Mount Edgecombe",
+        "postalCode": "4302"
+      },
+      {
+        "city": "Mtubatuba",
+        "postalCode": "3935"
+      },
+      {
+        "city": "Mtunzini",
+        "postalCode": "3867"
+      },
+      {
+        "city": "Newcastle",
+        "postalCode": "2940"
+      },
+      {
+        "city": "Phoenix",
+        "postalCode": "4068"
+      },
+      {
+        "city": "Phoenix Industrial",
+        "postalCode": "4068"
+      },
+      {
+        "city": "Pietermaritzburg",
+        "postalCode": "3201"
+      },
+      {
+        "city": "Pinetown",
+        "postalCode": "3610"
+      },
+      {
+        "city": "Port Shepstone",
+        "postalCode": "4240"
+      },
+      {
+        "city": "Queensburgh",
+        "postalCode": "4093"
+      },
+      {
+        "city": "Ramsgate",
+        "postalCode": "4285"
+      },
+      {
+        "city": "Richards Bay",
+        "postalCode": "3900"
+      },
+      {
+        "city": "Richmond",
+        "postalCode": "3780"
+      },
+      {
+        "city": "Scottburgh",
+        "postalCode": "4180"
+      },
+      {
+        "city": "St Lucia",
+        "postalCode": "3936"
+      },
+      {
+        "city": "Stanger (KwaDukuza)",
+        "postalCode": "4450"
+      },
+      {
+        "city": "Tongaat",
+        "postalCode": "4400"
+      },
+      {
+        "city": "Umhlanga",
+        "postalCode": "4319"
+      },
+      {
+        "city": "Umlazi",
+        "postalCode": "4066"
+      },
+      {
+        "city": "Verulam",
+        "postalCode": "4340"
+      },
+      {
+        "city": "Vryheid",
+        "postalCode": "3100"
+      },
+      {
+        "city": "Westville",
+        "postalCode": "3629"
+      }
+    ]
+  },
+  {
+    "province": "Limpopo",
+    "cities": [
+      {
+        "city": "Bela-Bela (Warmbaths)",
+        "postalCode": "0480"
+      },
+      {
+        "city": "Burgersfort",
+        "postalCode": "1150"
+      },
+      {
+        "city": "Giyani",
+        "postalCode": "0826"
+      },
+      {
+        "city": "Groblersdal",
+        "postalCode": "0470"
+      },
+      {
+        "city": "Hoedspruit",
+        "postalCode": "1380"
+      },
+      {
+        "city": "Jane Furse",
+        "postalCode": "1085"
+      },
+      {
+        "city": "Lephalale",
+        "postalCode": "0555"
+      },
+      {
+        "city": "Letsitele",
+        "postalCode": "0885"
+      },
+      {
+        "city": "Louis Trichardt (Makhado)",
+        "postalCode": "0920"
+      },
+      {
+        "city": "Mankweng",
+        "postalCode": "0727"
+      },
+      {
+        "city": "Modimolle (Nylstroom)",
+        "postalCode": "0510"
+      },
+      {
+        "city": "Mokopane",
+        "postalCode": "0600"
+      },
+      {
+        "city": "Musina",
+        "postalCode": "0900"
+      },
+      {
+        "city": "Phalaborwa",
+        "postalCode": "1390"
+      },
+      {
+        "city": "Polokwane",
+        "postalCode": "0700"
+      },
+      {
+        "city": "Seshego",
+        "postalCode": "0742"
+      },
+      {
+        "city": "Sibasa",
+        "postalCode": "0970"
+      },
+      {
+        "city": "Thohoyandou",
+        "postalCode": "0950"
+      },
+      {
+        "city": "Tzaneen",
+        "postalCode": "0850"
+      },
+      {
+        "city": "Vaalwater",
+        "postalCode": "0530"
+      }
+    ]
+  },
+  {
+    "province": "Mpumalanga",
+    "cities": [
+      {
+        "city": "Amsterdam",
+        "postalCode": "2375"
+      },
+      {
+        "city": "Barberton",
+        "postalCode": "1300"
+      },
+      {
+        "city": "Bethal",
+        "postalCode": "2310"
+      },
+      {
+        "city": "Carolina",
+        "postalCode": "1185"
+      },
+      {
+        "city": "Ermelo",
+        "postalCode": "2350"
+      },
+      {
+        "city": "Evander",
+        "postalCode": "2280"
+      },
+      {
+        "city": "Graskop",
+        "postalCode": "1270"
+      },
+      {
+        "city": "Hazyview",
+        "postalCode": "1242"
+      },
+      {
+        "city": "Komatipoort",
+        "postalCode": "1340"
+      },
+      {
+        "city": "Malalane",
+        "postalCode": "1320"
+      },
+      {
+        "city": "Mbombela (Nelspruit)",
+        "postalCode": "1200"
+      },
+      {
+        "city": "Middelburg MP",
+        "postalCode": "1050"
+      },
+      {
+        "city": "Piet Retief (eMkhondo)",
+        "postalCode": "2380"
+      },
+      {
+        "city": "Sabie",
+        "postalCode": "1260"
+      },
+      {
+        "city": "Secunda",
+        "postalCode": "2302"
+      },
+      {
+        "city": "Standerton",
+        "postalCode": "2430"
+      },
+      {
+        "city": "Trichardt",
+        "postalCode": "2300"
+      },
+      {
+        "city": "White River",
+        "postalCode": "1240"
+      },
+      {
+        "city": "eMalahleni (Witbank)",
+        "postalCode": "1035"
+      }
+    ]
+  },
+  {
+    "province": "North West",
+    "cities": [
+      {
+        "city": "Brits",
+        "postalCode": "0250"
+      },
+      {
+        "city": "Coligny",
+        "postalCode": "2730"
+      },
+      {
+        "city": "Delareyville",
+        "postalCode": "2770"
+      },
+      {
+        "city": "Hartbeespoort",
+        "postalCode": "0216"
+      },
+      {
+        "city": "Ikageng",
+        "postalCode": "2520"
+      },
+      {
+        "city": "Klerksdorp",
+        "postalCode": "2570"
+      },
+      {
+        "city": "Koster",
+        "postalCode": "0348"
+      },
+      {
+        "city": "Lichtenburg",
+        "postalCode": "2740"
+      },
+      {
+        "city": "Mahikeng",
+        "postalCode": "2745"
+      },
+      {
+        "city": "Mmabatho",
+        "postalCode": "2735"
+      },
+      {
+        "city": "Orkney",
+        "postalCode": "2619"
+      },
+      {
+        "city": "Ottosdal",
+        "postalCode": "2610"
+      },
+      {
+        "city": "Phokeng",
+        "postalCode": "0335"
+      },
+      {
+        "city": "Pilanesberg",
+        "postalCode": "0316"
+      },
+      {
+        "city": "Potchefstroom",
+        "postalCode": "2520"
+      },
+      {
+        "city": "Rustenburg",
+        "postalCode": "0299"
+      },
+      {
+        "city": "Schweizer-Reneke",
+        "postalCode": "2780"
+      },
+      {
+        "city": "Stilfontein",
+        "postalCode": "2551"
+      },
+      {
+        "city": "Swartruggens",
+        "postalCode": "2835"
+      },
+      {
+        "city": "Ventersdorp",
+        "postalCode": "2710"
+      },
+      {
+        "city": "Vryburg",
+        "postalCode": "8600"
+      },
+      {
+        "city": "Wolmaransstad",
+        "postalCode": "2630"
+      },
+      {
+        "city": "Zeerust",
+        "postalCode": "2865"
+      }
+    ]
+  },
+  {
+    "province": "Northern Cape",
+    "cities": [
+      {
+        "city": "Alexander Bay",
+        "postalCode": "8290"
+      },
+      {
+        "city": "Barkly West",
+        "postalCode": "8375"
+      },
+      {
+        "city": "Brandvlei",
+        "postalCode": "8920"
+      },
+      {
+        "city": "Britstown",
+        "postalCode": "8782"
+      },
+      {
+        "city": "Calvinia",
+        "postalCode": "8190"
+      },
+      {
+        "city": "Colesberg",
+        "postalCode": "9795"
+      },
+      {
+        "city": "Danielskuil",
+        "postalCode": "8405"
+      },
+      {
+        "city": "De Aar",
+        "postalCode": "7000"
+      },
+      {
+        "city": "Garies",
+        "postalCode": "8220"
+      },
+      {
+        "city": "Groblershoop",
+        "postalCode": "8850"
+      },
+      {
+        "city": "Hanover",
+        "postalCode": "7005"
+      },
+      {
+        "city": "Hartswater",
+        "postalCode": "8570"
+      },
+      {
+        "city": "Jan Kempdorp",
+        "postalCode": "8550"
+      },
+      {
+        "city": "Kakamas",
+        "postalCode": "8870"
+      },
+      {
+        "city": "Kamieskroon",
+        "postalCode": "8246"
+      },
+      {
+        "city": "Kathu",
+        "postalCode": "8446"
+      },
+      {
+        "city": "Keimoes",
+        "postalCode": "8860"
+      },
+      {
+        "city": "Kimberley",
+        "postalCode": "8301"
+      },
+      {
+        "city": "Kuruman",
+        "postalCode": "8460"
+      },
+      {
+        "city": "Loeriesfontein",
+        "postalCode": "8185"
+      },
+      {
+        "city": "Marydale",
+        "postalCode": "8925"
+      },
+      {
+        "city": "Niekerkshoop",
+        "postalCode": "8930"
+      },
+      {
+        "city": "Noupoort",
+        "postalCode": "5950"
+      },
+      {
+        "city": "Olifantshoek",
+        "postalCode": "8450"
+      },
+      {
+        "city": "Port Nolloth",
+        "postalCode": "8280"
+      },
+      {
+        "city": "Postmasburg",
+        "postalCode": "8420"
+      },
+      {
+        "city": "Prieska",
+        "postalCode": "8940"
+      },
+      {
+        "city": "Richmond NC",
+        "postalCode": "7090"
+      },
+      {
+        "city": "Springbok",
+        "postalCode": "8240"
+      },
+      {
+        "city": "Taung Road Area",
+        "postalCode": "8580"
+      },
+      {
+        "city": "Upington",
+        "postalCode": "8800"
+      },
+      {
+        "city": "Victoria West",
+        "postalCode": "7070"
+      },
+      {
+        "city": "Warrenton",
+        "postalCode": "8530"
+      }
+    ]
+  },
+  {
+    "province": "Western Cape",
+    "cities": [
+      {
+        "city": "Athlone",
+        "postalCode": "7764"
+      },
+      {
+        "city": "Beaufort West",
+        "postalCode": "6970"
+      },
+      {
+        "city": "Bellville",
+        "postalCode": "7530"
+      },
+      {
+        "city": "Bloubergstrand",
+        "postalCode": "7441"
+      },
+      {
+        "city": "Brackenfell",
+        "postalCode": "7560"
+      },
+      {
+        "city": "Bredasdorp",
+        "postalCode": "7280"
+      },
+      {
+        "city": "Caledon",
+        "postalCode": "7230"
+      },
+      {
+        "city": "Cape Town CBD",
+        "postalCode": "8000"
+      },
+      {
+        "city": "Century City",
+        "postalCode": "7446"
+      },
+      {
+        "city": "Ceres",
+        "postalCode": "6835"
+      },
+      {
+        "city": "Claremont",
+        "postalCode": "7708"
+      },
+      {
+        "city": "Constantia",
+        "postalCode": "7806"
+      },
+      {
+        "city": "Darling",
+        "postalCode": "7345"
+      },
+      {
+        "city": "Durbanville",
+        "postalCode": "7550"
+      },
+      {
+        "city": "Fish Hoek",
+        "postalCode": "7975"
+      },
+      {
+        "city": "Franschhoek",
+        "postalCode": "7690"
+      },
+      {
+        "city": "Gansbaai",
+        "postalCode": "7220"
+      },
+      {
+        "city": "George",
+        "postalCode": "6529"
+      },
+      {
+        "city": "Goodwood",
+        "postalCode": "7460"
+      },
+      {
+        "city": "Gordon\u2019s Bay",
+        "postalCode": "7140"
+      },
+      {
+        "city": "Green Point",
+        "postalCode": "8005"
+      },
+      {
+        "city": "Hermanus",
+        "postalCode": "7200"
+      },
+      {
+        "city": "Hout Bay",
+        "postalCode": "7806"
+      },
+      {
+        "city": "Khayelitsha",
+        "postalCode": "7784"
+      },
+      {
+        "city": "Knysna",
+        "postalCode": "6571"
+      },
+      {
+        "city": "Kraaifontein",
+        "postalCode": "7570"
+      },
+      {
+        "city": "Laingsburg",
+        "postalCode": "6900"
+      },
+      {
+        "city": "Langebaan",
+        "postalCode": "7357"
+      },
+      {
+        "city": "Lansdowne",
+        "postalCode": "7780"
+      },
+      {
+        "city": "Malmesbury",
+        "postalCode": "7299"
+      },
+      {
+        "city": "Melkbosstrand",
+        "postalCode": "7441"
+      },
+      {
+        "city": "Milnerton",
+        "postalCode": "7441"
+      },
+      {
+        "city": "Mitchells Plain",
+        "postalCode": "7785"
+      },
+      {
+        "city": "Montagu",
+        "postalCode": "6720"
+      },
+      {
+        "city": "Mossel Bay",
+        "postalCode": "6500"
+      },
+      {
+        "city": "Muizenberg",
+        "postalCode": "7950"
+      },
+      {
+        "city": "Newlands",
+        "postalCode": "7700"
+      },
+      {
+        "city": "Observatory",
+        "postalCode": "7925"
+      },
+      {
+        "city": "Oudtshoorn",
+        "postalCode": "6620"
+      },
+      {
+        "city": "Paarl",
+        "postalCode": "7646"
+      },
+      {
+        "city": "Parklands",
+        "postalCode": "7441"
+      },
+      {
+        "city": "Parow",
+        "postalCode": "7500"
+      },
+      {
+        "city": "Paternoster",
+        "postalCode": "7381"
+      },
+      {
+        "city": "Plettenberg Bay",
+        "postalCode": "6600"
+      },
+      {
+        "city": "Prince Albert",
+        "postalCode": "6930"
+      },
+      {
+        "city": "Robertson",
+        "postalCode": "6705"
+      },
+      {
+        "city": "Rondebosch",
+        "postalCode": "7700"
+      },
+      {
+        "city": "Saldanha",
+        "postalCode": "7395"
+      },
+      {
+        "city": "Sea Point",
+        "postalCode": "8005"
+      },
+      {
+        "city": "Simon\u2019s Town",
+        "postalCode": "7995"
+      },
+      {
+        "city": "Somerset West",
+        "postalCode": "7130"
+      },
+      {
+        "city": "Stellenbosch",
+        "postalCode": "7600"
+      },
+      {
+        "city": "Strand",
+        "postalCode": "7140"
+      },
+      {
+        "city": "Struisbaai",
+        "postalCode": "7285"
+      },
+      {
+        "city": "Swellendam",
+        "postalCode": "6740"
+      },
+      {
+        "city": "Table View",
+        "postalCode": "7441"
+      },
+      {
+        "city": "Tulbagh",
+        "postalCode": "6820"
+      },
+      {
+        "city": "Vredenburg",
+        "postalCode": "7380"
+      },
+      {
+        "city": "Wellington",
+        "postalCode": "7654"
+      },
+      {
+        "city": "Wilderness",
+        "postalCode": "6560"
+      },
+      {
+        "city": "Woodstock",
+        "postalCode": "7915"
+      },
+      {
+        "city": "Worcester",
+        "postalCode": "6850"
+      },
+      {
+        "city": "Wynberg",
+        "postalCode": "7800"
+      }
+    ]
+  }
+]

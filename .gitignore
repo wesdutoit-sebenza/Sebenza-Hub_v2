@@ -1,51 +1,6 @@
-# Database Configuration
-DATABASE_URL=postgresql://user:password@host:port/database
-PGHOST=your_postgres_host
-PGPORT=5432
-PGDATABASE=your_database_name
-PGUSER=your_postgres_user
-PGPASSWORD=your_postgres_password
-
-# Redis
-REDIS_URL=redis://default:password@host:port
-
-# Authentication & Sessions
-JWT_SECRET=your_jwt_secret_key_here
-JWT_REFRESH_SECRET=your_jwt_refresh_secret_key_here
-SESSION_SECRET=your_session_secret_key_here
-ADMIN_SETUP_SECRET=your_admin_setup_secret_here
-
-# Google OAuth & Services
-GOOGLE_CLIENT_ID=your_google_client_id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=your_google_client_secret
-VITE_GOOGLE_MAPS_API_KEY=your_google_maps_api_key
-
-# Microsoft OAuth
-MICROSOFT_CLIENT_ID=your_microsoft_client_id
-MICROSOFT_CLIENT_SECRET=your_microsoft_client_secret
-
-# Zoom OAuth
-ZOOM_CLIENT_ID=your_zoom_client_id
-ZOOM_CLIENT_SECRET=your_zoom_client_secret
-
-# GitHub OAuth (optional)
-GITHUB_CLIENT_ID=your_github_client_id
-GITHUB_CLIENT_SECRET=your_github_client_secret
-
-# Firebase Configuration
-FIREBASE_CLIENT_EMAIL=your_firebase_client_email@project.iam.gserviceaccount.com
-FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nyour_private_key_here\n-----END PRIVATE KEY-----\n"
-VITE_FIREBASE_API_KEY=your_firebase_api_key
-VITE_FIREBASE_APP_ID=your_firebase_app_id
-VITE_FIREBASE_PROJECT_ID=your_firebase_project_id
-
-# External Services
-OPENAI_API_KEY=sk-your_openai_api_key_here
-RESEND_API_KEY=re_your_resend_api_key_here
-NETCASH_SERVICE_KEY=your_netcash_service_key_here
-
-# Notes:
-# - Never commit actual secrets to version control
-# - Copy this file to .env and fill in your actual values
-# - Ensure .env is in your .gitignore file
-# - Variables prefixed with VITE_ are exposed to the frontend
+node_modules
+dist
+.DS_Store
+server/public
+vite.config.ts.*
+*.tar.gz

@@ -1,0 +1,421 @@
+# app.py
+# Single-file AI Interview Coach for Replit
+# Frontend (HTML+Tailwind) served by Flask; Backend calls OpenAI API
+# Features:
+#  - Upload/paste Job Description & Candidate CV
+#  - Coach asks tailored questions (behavioral/technical/mixed)
+#  - Real-time feedback and scoring rubric per answer
+#  - Session transcript download
+#  - Adjustable difficulty & style
+#  - Works with OpenAI's Python SDK (v1)
+
+import os
+import json
+from datetime import datetime
+from dataclasses import dataclass, asdict
+from typing import List, Optional
+
+from flask import Flask, request, jsonify, render_template_string, send_file
+
+# ==== CONFIG ====
+MODEL = os.environ.get("AI_MODEL", "gpt-4o-mini")  # override in Replit Secrets if you like
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+
+# Optional: fall back to mock mode if no key provided
+MOCK_MODE = not bool(OPENAI_API_KEY)
+
+# ---- OpenAI client (lazy import to allow mock mode) ----
+client = None
+if not MOCK_MODE:
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=OPENAI_API_KEY)
+    except Exception as e:
+        print("OpenAI client init error:", e)
+        MOCK_MODE = True
+
+
+# ==== Domain Types ====
+@dataclass
+class InterviewConfig:
+    job_title: str
+    interview_type: str  # "behavioral" | "technical" | "mixed"
+    difficulty: str      # "easy" | "standard" | "hard"
+    locale: str          # e.g., "en-ZA"
+    company: str
+    time_per_answer_sec: int = 180
+
+@dataclass
+class CandidateContext:
+    job_description: str = ""
+    candidate_cv: str = ""
+
+
+# ==== Prompting ====
+SYSTEM_PROMPT = (
+    "You are Jabu, a supportive but exacting AI Interview Coach. "
+    "Goal: prepare the candidate for a specific role by simulating a realistic interview, giving targeted feedback after every answer, and gradually increasing difficulty. "
+    "Always tailor questions to the provided job description and CV when available. "
+    "Interview style must respect the config: interview_type, difficulty, locale, company, time limits. "
+    "Flow: (1) greet and set expectations, (2) ask one question, (3) wait for candidate answer, (4) score 0-5 using the rubric, (5) give concise feedback: what was good, what to improve, an upgraded sample snippet, and a follow-up question. "
+    "Rubric dimensions: Relevance, Structure (STAR/so-what), Depth/Specificity (metrics/examples), Communication (clarity, tone), Role Alignment (skills/competencies). "
+    "Scoring guidance: 5=Outstanding; 4=Strong; 3=Adequate; 2=Weak; 1=Poor; 0=Off-topic. "
+    "End every coach turn with exactly one follow-up question unless the user types END or requests summary. "
+    "When technical: include targeted probes (why X over Y, trade-offs, complexity, edge cases). "
+    "When behavioral: prefer STAR, leadership, conflict, stakeholder mgmt, and measurable outcomes. "
+)
+
+# JSON schema for coach response
+COACH_JSON_INSTRUCTIONS = (
+    "Respond in JSON with keys: \n"
+    "question (string),\n"
+    "feedback (object: {summary, strengths, improvements, sample_upgrade}),\n"
+    "score (integer 0-5),\n"
+    "follow_up (string).\n"
+    "No additional keys."
+)
+
+
+def build_messages(cfg: InterviewConfig, ctx: CandidateContext, history: List[dict]):
+    sys = SYSTEM_PROMPT + "\n\n" + COACH_JSON_INSTRUCTIONS
+
+    preface = (
+        f"Company: {cfg.company}\n"
+        f"Role: {cfg.job_title}\n"
+        f"Interview Type: {cfg.interview_type}\n"
+        f"Difficulty: {cfg.difficulty}\n"
+        f"Locale: {cfg.locale}\n"
+        f"Time per answer (sec): {cfg.time_per_answer_sec}\n\n"
+        f"Job Description:\n{ctx.job_description[:5000]}\n\n"
+        f"Candidate CV:\n{ctx.candidate_cv[:5000]}\n\n"
+        "If no CV or JD provided, infer reasonable industry standards."
+    )
+
+    messages = [
+        {"role": "system", "content": sys},
+        {"role": "user", "content": preface},
+    ]
+    messages.extend(history)
+    return messages
+
+
+def call_model(messages: List[dict]) -> dict:
+    """Call OpenAI; ensure JSON output. In mock mode, return a canned response."""
+    if MOCK_MODE:
+        return {
+            "question": "Tell me about a time you had to prioritize conflicting deadlines. What was the impact?",
+            "feedback": {
+                "summary": "Clear structure and relevant outcome.",
+                "strengths": ["Used STAR", "Quantified impact"],
+                "improvements": ["Tighten metrics", "Add stakeholder perspective"],
+                "sample_upgrade": "I prioritized based on revenue risk using a RICE grid, aligned with Sales/Support, delivered 2 days early, reducing churn by 8 bps."
+            },
+            "score": 4,
+            "follow_up": "What trade-offs did you consider when negotiating the timeline?"
+        }
+
+    resp = client.chat.completions.create(
+        model=MODEL,
+        response_format={"type": "json_object"},
+        messages=messages,
+        temperature=0.4,
+        max_tokens=600,
+    )
+    content = resp.choices[0].message.content
+    try:
+        return json.loads(content)
+    except Exception:
+        # Fallback: wrap raw text
+        return {"question": content, "feedback": {"summary": "", "strengths": [], "improvements": [], "sample_upgrade": ""}, "score": 3, "follow_up": "Could you expand on that?"}
+
+
+# ==== Flask App ====
+app = Flask(__name__)
+
+
+INDEX_HTML = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Interview Coach</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-stone-100 text-stone-900">
+  <div class="max-w-5xl mx-auto p-6">
+    <header class="mb-6">
+      <h1 class="text-3xl font-bold">AI Interview Coach</h1>
+      <p class="text-sm text-stone-600">Single-file app for Replit. Add your <code>OPENAI_API_KEY</code> in Secrets. {{ 'MOCK MODE: responses are simulated.' if mock_mode else '' }}</p>
+    </header>
+
+    <!-- Config Panel -->
+    <section class="grid md:grid-cols-2 gap-4 mb-6">
+      <div class="bg-white rounded-2xl shadow p-4 space-y-3">
+        <h2 class="font-semibold">Configuration</h2>
+        <label class="block text-sm">Company
+          <input id="company" class="mt-1 w-full border rounded-lg p-2" placeholder="Sebenza Hub" />
+        </label>
+        <label class="block text-sm">Job Title
+          <input id="job_title" class="mt-1 w-full border rounded-lg p-2" placeholder="Customer Success Manager" />
+        </label>
+        <label class="block text-sm">Interview Type
+          <select id="interview_type" class="mt-1 w-full border rounded-lg p-2">
+            <option>mixed</option>
+            <option>behavioral</option>
+            <option>technical</option>
+          </select>
+        </label>
+        <label class="block text-sm">Difficulty
+          <select id="difficulty" class="mt-1 w-full border rounded-lg p-2">
+            <option>standard</option>
+            <option>easy</option>
+            <option>hard</option>
+          </select>
+        </label>
+        <label class="block text-sm">Locale
+          <input id="locale" class="mt-1 w-full border rounded-lg p-2" value="en-ZA" />
+        </label>
+        <label class="block text-sm">Time per answer (sec)
+          <input id="tpa" type="number" class="mt-1 w-full border rounded-lg p-2" value="180" />
+        </label>
+      </div>
+      <div class="bg-white rounded-2xl shadow p-4 space-y-3">
+        <h2 class="font-semibold">Context</h2>
+        <label class="block text-sm">Job Description
+          <textarea id="jd" class="mt-1 w-full border rounded-lg p-2 h-28" placeholder="Paste JD here..."></textarea>
+        </label>
+        <label class="block text-sm">Candidate CV
+          <textarea id="cv" class="mt-1 w-full border rounded-lg p-2 h-28" placeholder="Paste CV here..."></textarea>
+        </label>
+      </div>
+    </section>
+
+    <!-- Chat -->
+    <section class="bg-white rounded-2xl shadow p-4">
+      <div id="chat" class="h-80 overflow-y-auto space-y-4 p-2"></div>
+      <div class="mt-4 flex gap-2">
+        <input id="user_input" class="flex-1 border rounded-lg p-2" placeholder="Type your answer. Type END to finish or SUMMARY for a report." />
+        <button id="send" class="px-4 py-2 rounded-xl bg-stone-900 text-white">Send</button>
+        <button id="start" class="px-4 py-2 rounded-xl bg-stone-700 text-white">Start Session</button>
+        <button id="download" class="px-4 py-2 rounded-xl bg-stone-500 text-white">Download Transcript</button>
+      </div>
+    </section>
+  </div>
+
+<script>
+const chatEl = document.getElementById('chat');
+const inputEl = document.getElementById('user_input');
+const sendBtn = document.getElementById('send');
+const startBtn = document.getElementById('start');
+const dlBtn = document.getElementById('download');
+
+let history = []; // {role: 'user'|'assistant', content: string}
+let sessionId = null;
+
+function addBubble(sender, html){
+  const wrap = document.createElement('div');
+  wrap.className = sender === 'you' ? 'flex justify-end' : 'flex justify-start';
+  const b = document.createElement('div');
+  b.className = 'max-w-[85%] rounded-2xl px-4 py-3 ' + (sender==='you' ? 'bg-stone-900 text-white' : 'bg-stone-100');
+  b.innerHTML = html;
+  wrap.appendChild(b);
+  chatEl.appendChild(wrap);
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+async function api(path, payload){
+  const res = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+  return await res.json();
+}
+
+async function start(){
+  sessionId = null; chatEl.innerHTML = ''; history = [];
+  const cfg = collectConfig();
+  const ctx = collectContext();
+  const resp = await api('/start', {config: cfg, context: ctx});
+  sessionId = resp.session_id;
+  addBubble('coach', `<div class='text-sm text-stone-600 mb-2'>Coach</div><div class='font-medium'>${resp.question}</div>`);
+}
+
+function collectConfig(){
+  return {
+    company: document.getElementById('company').value||'Your Company',
+    job_title: document.getElementById('job_title').value||'Role',
+    interview_type: document.getElementById('interview_type').value,
+    difficulty: document.getElementById('difficulty').value,
+    locale: document.getElementById('locale').value||'en-ZA',
+    time_per_answer_sec: Number(document.getElementById('tpa').value||180)
+  };
+}
+function collectContext(){
+  return { job_description: document.getElementById('jd').value||'', candidate_cv: document.getElementById('cv').value||'' };
+}
+
+async function send(){
+  if(!sessionId){ await start(); }
+  const text = inputEl.value.trim();
+  if(!text) return;
+  inputEl.value = '';
+  addBubble('you', `<div class='text-sm text-stone-300 mb-1'>You</div>${text}`);
+  const resp = await api('/chat', {session_id: sessionId, user_text: text});
+  addBubble('coach', renderCoach(resp));
+}
+
+function renderCoach(r){
+  const fb = r.feedback || {}; const strengths = (fb.strengths||[]).map(x=>`<li>${x}</li>`).join(''); const imps=(fb.improvements||[]).map(x=>`<li>${x}</li>`).join('');
+  return `
+    <div class='text-sm text-stone-600 mb-2'>Coach</div>
+    <div class='space-y-3'>
+      <div><span class='text-xs uppercase text-stone-500'>Question</span><div class='font-medium'>${r.question||''}</div></div>
+      <div class='grid md:grid-cols-3 gap-3'>
+        <div class='bg-white border rounded-xl p-3'><div class='text-xs uppercase text-stone-500'>Score</div><div class='text-2xl font-bold'>${r.score??''}/5</div></div>
+        <div class='bg-white border rounded-xl p-3 md:col-span-2'>
+          <div class='text-xs uppercase text-stone-500'>Feedback</div>
+          <p class='mt-1 text-sm'>${fb.summary||''}</p>
+          <div class='grid grid-cols-2 gap-2 mt-2'>
+            <div><div class='text-xs text-stone-500'>Strengths</div><ul class='list-disc list-inside text-sm'>${strengths}</ul></div>
+            <div><div class='text-xs text-stone-500'>Improvements</div><ul class='list-disc list-inside text-sm'>${imps}</ul></div>
+          </div>
+          ${fb.sample_upgrade?`<div class='mt-2'><div class='text-xs text-stone-500'>Sample Upgrade</div><pre class='bg-stone-50 p-2 rounded-lg text-xs whitespace-pre-wrap'>${fb.sample_upgrade}</pre></div>`:''}
+        </div>
+      </div>
+      <div><span class='text-xs uppercase text-stone-500'>Follow-up</span><div class='font-medium'>${r.follow_up||''}</div></div>
+    </div>`;
+}
+
+startBtn.addEventListener('click', start);
+sendBtn.addEventListener('click', send);
+inputEl.addEventListener('keydown', (e)=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); }});
+
+dlBtn.addEventListener('click', async ()=>{
+  if(!sessionId) return;
+  const res = await fetch('/transcript', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({session_id: sessionId})});
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'interview_transcript.json'; a.click();
+  URL.revokeObjectURL(url);
+});
+</script>
+</body>
+</html>
+"""
+
+
+# ==== In-memory session store ====
+sessions = {}
+
+
+def new_session_id():
+    return datetime.utcnow().strftime("%Y%m%d%H%M%S%f")
+
+
+@app.route("/")
+def index():
+    return render_template_string(INDEX_HTML, mock_mode=MOCK_MODE)
+
+
+@app.route("/start", methods=["POST"])
+def start_session():
+    data = request.get_json(force=True)
+    cfg_raw = data.get("config", {})
+    ctx_raw = data.get("context", {})
+    cfg = InterviewConfig(
+        job_title=cfg_raw.get("job_title", "Role"),
+        interview_type=cfg_raw.get("interview_type", "mixed"),
+        difficulty=cfg_raw.get("difficulty", "standard"),
+        locale=cfg_raw.get("locale", "en-ZA"),
+        company=cfg_raw.get("company", "Company"),
+        time_per_answer_sec=int(cfg_raw.get("time_per_answer_sec", 180)),
+    )
+    ctx = CandidateContext(job_description=ctx_raw.get("job_description", ""), candidate_cv=ctx_raw.get("candidate_cv", ""))
+
+    sid = new_session_id()
+    sessions[sid] = {
+        "cfg": asdict(cfg),
+        "ctx": asdict(ctx),
+        "history": []  # chat history with role/content for the model
+    }
+
+    # First question: ask model with empty history
+    messages = build_messages(cfg, ctx, history=[{"role": "user", "content": "Start with a warm greeting and the first question only."}])
+    out = call_model(messages)
+
+    # store assistant response into history as JSON text
+    sessions[sid]["history"].append({"role": "assistant", "content": json.dumps(out)})
+
+    return jsonify({"session_id": sid, "question": out.get("question", "Let's begin. Tell me about yourself.")})
+
+
+@app.route("/chat", methods=["POST"])
+def chat():
+    data = request.get_json(force=True)
+    sid = data.get("session_id")
+    user_text = data.get("user_text", "").strip()
+    if not sid or sid not in sessions:
+        return jsonify({"error": "invalid session"}), 400
+
+    # end/summary behavior handled inline
+    cfg = InterviewConfig(**sessions[sid]["cfg"])
+    ctx = CandidateContext(**sessions[sid]["ctx"])
+
+    # append candidate answer
+    sessions[sid]["history"].append({"role": "user", "content": user_text})
+
+    if user_text.upper() == "END":
+        # Ask for closing summary
+        messages = build_messages(cfg, ctx, sessions[sid]["history"] + [{"role":"user","content":"Provide only a final coaching summary and top 5 priorities for improvement as JSON: {summary, top_priorities} "}])
+        out = call_model(messages)
+        sessions[sid]["history"].append({"role": "assistant", "content": json.dumps(out)})
+        return jsonify({
+            "question": "Session ended.",
+            "feedback": {"summary": out.get("summary", "Thanks for practicing."), "strengths": [], "improvements": out.get("top_priorities", []), "sample_upgrade": ""},
+            "score": 5,
+            "follow_up": ""
+        })
+
+    if user_text.upper() == "SUMMARY":
+        # quick mid-session summary
+        messages = build_messages(cfg, ctx, sessions[sid]["history"] + [{"role":"user","content":"Summarize progress so far briefly as JSON: {summary, next_focus}."}])
+        out = call_model(messages)
+        sessions[sid]["history"].append({"role": "assistant", "content": json.dumps(out)})
+        return jsonify({
+            "question": "Resume when ready.",
+            "feedback": {"summary": out.get("summary", ""), "strengths": [], "improvements": [out.get("next_focus", "")], "sample_upgrade": ""},
+            "score": 0,
+            "follow_up": "What would you like to practice next?"
+        })
+
+    # Normal turn: ask for evaluation + next question
+    messages = build_messages(cfg, ctx, sessions[sid]["history"] + [{"role":"user","content":"Evaluate the last answer, then return next question as JSON per schema."}])
+    out = call_model(messages)
+
+    # store assistant response
+    sessions[sid]["history"].append({"role": "assistant", "content": json.dumps(out)})
+
+    return jsonify(out)
+
+
+@app.route("/transcript", methods=["POST"])
+def transcript():
+    data = request.get_json(force=True)
+    sid = data.get("session_id")
+    if not sid or sid not in sessions:
+        return jsonify({"error": "invalid session"}), 400
+    payload = {
+        "session_id": sid,
+        "created": datetime.utcnow().isoformat() + "Z",
+        "config": sessions[sid]["cfg"],
+        "context": sessions[sid]["ctx"],
+        "history": sessions[sid]["history"],
+    }
+    path = f"/tmp/interview_transcript_{sid}.json"
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    return send_file(path, mimetype='application/json', as_attachment=True, download_name='interview_transcript.json')
+
+
+if __name__ == "__main__":
+    # On Replit, Flask binds to 0.0.0.0 with the provided PORT
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))

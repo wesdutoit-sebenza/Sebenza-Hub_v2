@@ -1,0 +1,2 @@
+{ "format":"sjt_rank", "stem":"A customer…", "options":[ "...", "...", "...", "..." ], "key":"RANK: 3>1>4>2", "competencies":["Customer Empathy","Policy Adherence"], "difficulty":"M" }
+

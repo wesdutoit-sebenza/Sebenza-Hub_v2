@@ -1,0 +1,158 @@
+Perfect — a **Warehouse Supervisor** role is an excellent first use case. It’s practical, high-volume, and covers a blend of **technical, managerial, and safety competencies** — ideal for demonstrating Sebenza Hub’s AI-driven competency test engine.
+
+Below is a complete **Competency Test Blueprint** tailored for South Africa, aligned to international best practice (ISO 10667 structure, TestGorilla-style modularity, POPIA-compliant, and non-diagnostic work-style items).
+
+---
+
+# 🧠 SEBENZA HUB AI COMPETENCY TEST BLUEPRINT
+
+**Role:** Warehouse Supervisor
+**Industry:** Logistics / Distribution / FMCG
+**Level:** Mid-level (Team Lead – Supervisor)
+**Languages:** English (SA) + Afrikaans optional
+**Total Duration:** 45 – 55 minutes
+**Test Weights:**
+
+* Skills Test – 50 %
+* Aptitude Test – 30 %
+* Work-Style Profile – 20 %
+
+---
+
+## 🧰 1️⃣ Skills Test (Operational & Compliance)
+
+**Duration:** 25 minutes
+**Focus:** Inventory management, team leadership, safety compliance, problem-solving.
+
+| Type           | Question Example                                                                                                                                                                                 | Competency                    |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------- |
+| MCQ            | *A pallet is short by 6 items. You discover one damaged box of 12 items. What is the correct stock adjustment?*                                                                                  | Attention to detail, Numeracy |
+| SJT            | *A picker reports repeated mis-scans slowing the line. Choose the best action:* (1) Ignore until count day  (2) Investigate scanner setup  (3) Reprimand picker  (4) Escalate immediately to GM. | Problem solving, Leadership   |
+| Case Study     | *Review this shift-handover log and write a short note to the Operations Manager summarizing issues and next steps.*                                                                             | Communication, Prioritization |
+| Compliance MCQ | *According to OHS Act 85 of 1993, what is required before a forklift operator may operate a machine?*                                                                                            | Safety Compliance             |
+
+**Anti-Cheat:** randomized options and values, timed section, IP + full-screen monitoring.
+
+---
+
+## 🔢 2️⃣ Aptitude Test (Reasoning & Decision Speed)
+
+**Duration:** 15 minutes
+**Focus:** Basic math, spatial awareness, logic, verbal clarity.
+
+| Type                | Question Example                                                                             | Competency         |
+| ------------------- | -------------------------------------------------------------------------------------------- | ------------------ |
+| Numeric Reasoning   | *A truck delivers 6 pallets × 54 boxes each. If 8 % are damaged, how many boxes are usable?* | Numerical Accuracy |
+| Logical Sequence    | *Identify the pattern: B2, D4, F6, **?***                                                    | Logical Reasoning  |
+| Verbal Reasoning    | *Choose the sentence with correct grammar for a dispatch note.*                              | Communication      |
+| Data Interpretation | *Review a small table of shipment data and answer 2 questions about trends.*                 | Analytical Skills  |
+
+---
+
+## 🧩 3️⃣ Work-Style & Behavioral Profile (Non-diagnostic)
+
+**Duration:** 10 minutes
+**Format:** Likert (1–5 = Strongly Disagree → Strongly Agree)
+**Output:** Advisory report on work preferences only. No clinical diagnosis.
+
+| Example Statement                                                 | Construct Measured     |
+| ----------------------------------------------------------------- | ---------------------- |
+| “I prefer to lead from the floor rather than from the office.”    | Leadership Style       |
+| “I stay calm when deliveries arrive late.”                        | Stress Tolerance       |
+| “Rules exist for a reason, and I make sure my team follows them.” | Compliance Orientation |
+| “I enjoy training new staff and seeing them grow.”                | People Development     |
+
+---
+
+## ⚙️ 4️⃣ Recruiter Customization
+
+Recruiter can add custom questions (in any format):
+
+| Format           | Example                                                                           | Purpose       |
+| ---------------- | --------------------------------------------------------------------------------- | ------------- |
+| **Free Text**    | “Describe a time you reduced wastage in your warehouse.”                          | Behavioral    |
+| **Video Prompt** | “Record a 1-minute video explaining how you motivate a team during night shifts.” | Communication |
+| **File Upload**  | Upload an Excel stock-count report and highlight discrepancies.                   | Technical     |
+| **Scenario MCQ** | “Power outage stops scanning for 15 minutes; what do you do first?”               | Judgment      |
+
+---
+
+## 🧾 5️⃣ Scoring & Thresholds
+
+| Section          | Weight | Passing Score                | Scoring Method               |
+| ---------------- | ------ | ---------------------------- | ---------------------------- |
+| Skills           | 50 %   | ≥ 60 %                       | Auto + Rubric for case study |
+| Aptitude         | 30 %   | ≥ 55 %                       | Auto                         |
+| Work-Style       | 20 %   | N/A (advisory only)          | Profile Match Index 0–100    |
+| **Overall Pass** |        | ≥ 65 % on objective sections | Weighted Average             |
+
+Each attempt produces a **Recruiter Report**:
+
+* Section scores + strength/weakness breakdown
+* Work-style summary (e.g., “structured planner, steady under pressure”)
+* Cheating flags (if any, for review only)
+
+---
+
+## 🔒 6️⃣ POPIA & Fairness Compliance
+
+* Candidate consent and purpose notice shown before test.
+* Data retention policy (12 months default) with export/delete on request.
+* Language clarity checked for bias and cultural neutrality.
+* Accessibility features (screen reader mode, extra-time toggle).
+* Results used only for selection decision + feedback (optional).
+
+---
+
+## 💻 7️⃣ Technical Features
+
+* **AI Generator:** creates blueprint + initial item set from JD.
+* **Recruiter Dashboard:** add/edit items, set weights, preview test.
+* **Candidate UI:** mobile responsive, WhatsApp-link entry, low-data mode.
+* **Proctoring (Optional):** fullscreen monitor + snapshot (if consent).
+* **Reports:** PDF summary + CSV scores + JSON API for ATS integration.
+
+---
+
+## 🧮 8️⃣ Blueprint JSON (Example Structure)
+
+```json
+{
+  "role": "Warehouse Supervisor",
+  "duration_min": 50,
+  "weights": { "skills": 0.5, "aptitude": 0.3, "work_style": 0.2 },
+  "cut_scores": { "overall": 65, "skills": 60, "aptitude": 55 },
+  "anti_cheat": { "shuffle": true, "fullscreen_monitor": true, "webcam": "consent_optional" },
+  "sections": [
+    { "type": "skills", "time": 25, "items": [ /* 10–12 MCQ/SJT/case */ ] },
+    { "type": "aptitude", "time": 15, "items": [ /* 8–10 numeric/verbal */ ] },
+    { "type": "work_style", "time": 10, "items": [ /* 12–15 Likert */ ] }
+  ],
+  "candidate_notice": { "privacy": "{{POPIA_NOTICE}}", "purpose": "Initial screening before interview." }
+}
+```
+
+---
+
+## 📊 9️⃣ Deliverables after test
+
+1. **Recruiter Report**
+
+   * Scores + percentiles + competency graph
+   * Work-style summary and development tips
+   * Cheating flags (if any)
+2. **Candidate Feedback** (optional)
+
+   * “Your results indicate strong attention to detail and numerical accuracy.”
+3. **Audit Trail** (ISO 10667 alignment)
+
+---
+
+## 🚀 Next Step
+
+Would you like me to generate a **sample set of 10 realistic questions** (mix of Skills + Aptitude + Work-Style) in structured JSON for integration/testing in Replit?
+That will allow us to wire it straight into your **AI Competency Agent** module and connect the recruiter customization interface.
+
+
+
+

@@ -1,0 +1,58 @@
+/* Sebenza Hub – Brand Palette */
+:root{
+  /* Primary */
+  --charcoal-1:#2e2f31;         /* background/shadow */
+  --charcoal-2:#3a3b3d;
+
+  --amber-1:#f4a300;            /* HUB text / accents */
+  --amber-2:#ffb43b;
+
+  --white:#ffffff;              /* "Sebenza" text */
+
+  /* Accent & Secondary */
+  --slate-1:#5c6369;            /* small spheres / mids */
+  --slate-2:#70787e;
+
+  --graphite:#4a4d50;           /* transitions/shading */
+  --black-deep:#1f1f20;         /* depth */
+
+  /* Helpful aliases */
+  --bg-main:var(--charcoal-1);
+  --text-main:var(--white);
+  --brand-accent:var(--amber-1);
+}
+
+/* Gradients */
+.bg-charcoal-gradient{
+  background: linear-gradient(135deg,var(--charcoal-1),var(--charcoal-2));
+}
+.bg-amber-gradient{
+  background: linear-gradient(135deg,var(--amber-1),var(--amber-2));
+}
+.bg-slate-gradient{
+  background: linear-gradient(135deg,var(--slate-1),var(--slate-2));
+}
+
+/* Background helpers */
+.bg-charcoal{ background: var(--charcoal-1); }
+.bg-amber{ background: var(--amber-1); }
+.bg-white{ background: var(--white); }
+.bg-slate{ background: var(--slate-1); }
+.bg-graphite{ background: var(--graphite); }
+.bg-deep{ background: var(--black-deep); }
+
+/* Text helpers */
+.text-amber{ color: var(--amber-1); }
+.text-white{ color: var(--white); }
+.text-charcoal{ color: var(--charcoal-2); }
+.text-slate{ color: var(--slate-2); }
+.text-graphite{ color: var(--graphite); }
+
+/* Border helpers */
+.border-amber{ border-color: var(--amber-1); }
+.border-slate{ border-color: var(--slate-2); }
+.border-charcoal{ border-color: var(--charcoal-2); }
+
+/* Example tokens for logo parts */
+.logo-sebenza{ color: var(--white); }   /* "Sebenza" */
+.logo-hub{ color: var(--amber-1); }     /* "HUB" */
