@@ -1,0 +1,62 @@
+Short answer: yes—if you follow the entitlement model I outlined, adding features later is simple and low-risk.
+
+Here’s the 8-step “add a new feature” playbook you can reuse every time:
+
+1. Create the feature key
+   Add one row in `Feature` (e.g., `key="resume_ai_review"`, `kind="QUOTA"` or `TOGGLE`).
+
+2. Map it to plans
+   Insert 3–9 rows in `FeatureEntitlement`—one per plan you want it on.
+
+* TOGGLE: `enabled=true/false`
+* QUOTA: `monthlyCap=10/50/∞`
+* METERED: set `overageUnitCents` if you want pay-as-you-go
+
+3. (Optional) Seed default usage
+   No migration needed—`Usage` records are created on first use by your `consume()` helper.
+
+4. Gate the feature in code
+   Wrap the action with your policy service:
+
+```ts
+await consume(holder, 'resume_ai_review', 1)
+```
+
+If it’s read-only UI (no write), you can use `checkAllowed()`.
+
+5. Expose to the UI
+   Your `/me/entitlements` endpoint already returns entitlements; the frontend can show:
+
+* a “Locked/Upgrade” badge when not allowed
+* a counter when QUOTA (e.g., 7/10 used)
+
+6. Add soft-launch controls (recommended)
+   Put a **kill switch** and **percentage rollout** in an env/config table:
+
+* `features.resume_ai_review.enabled=true/false`
+* `features.resume_ai_review.rollout=25` (serve to 25% of holders)
+
+7. Billing & analytics (optional)
+
+* For METERED, increment a separate `MeteredUsage` table and invoice at cycle end.
+* Add a simple dashboard card showing adoption per plan.
+
+8. Backwards-compat & plan changes
+
+* “Grandfather” existing subscribers by **not** changing their plan row; create a new plan version if pricing/entitlements differ.
+* For Free plans, default to `enabled=false` so new features don’t leak.
+
+Why this is easy later
+
+* **No schema churn:** new features are data, not migrations.
+* **One helper call (`consume`)** enforces limits everywhere.
+* **Catalog-driven UI:** pricing, badges, and limits auto-reflect from the API.
+* **Safe rollout:** kill switch + % rollout + trial caps prevent surprises.
+
+Typical timeline (per feature)
+
+* Define keys/entitlements: 5–10 minutes
+* Add server check + UI badge: 30–60 minutes
+* (Optional) metering + admin toggles: 30 minutes
+
+If you want, I can draft the exact SQL/Prisma seed + an example React “Upgrade modal” that reads from `/public/plans` so the UI updates the moment you add a feature to a plan.

@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -22,16 +23,50 @@ import {
 import PageHeader from "@/components/PageHeader";
 import Section from "@/components/Section";
 import FAQAccordion from "@/components/FAQAccordion";
-import PricingTable from "@/components/PricingTable";
 import CVBuilder from "@/components/CVBuilder";
 import ResumeUpload from "@/components/ResumeUpload";
 import InterviewCoach from "@/components/InterviewCoach";
-import { individualPricingPlans } from "@/data";
-import { User, Clock, Video, Upload, Award, Shield, Briefcase, MapPin, DollarSign, MessageCircle, Search, Filter, FileText } from "lucide-react";
+import { User, Clock, Video, Upload, Award, Shield, Briefcase, MapPin, DollarSign, MessageCircle, Search, Filter, FileText, Check, Loader2 } from "lucide-react";
 import { type Job, type User as UserType } from "@shared/schema";
+
+interface Plan {
+  plan: {
+    id: string;
+    product: string;
+    tier: string;
+    interval: string;
+    priceMonthly: string;
+    priceYearly: string;
+    description: string;
+  };
+  entitlements: Array<{
+    featureName: string;
+    featureDescription: string;
+    featureKind: 'TOGGLE' | 'QUOTA' | 'METERED';
+    enabled: number;
+    monthlyCap: number | null;
+    unit: string | null;
+  }>;
+}
+
+const TIER_INFO = {
+  free: {
+    name: "Free",
+    badge: "Get Started",
+  },
+  standard: {
+    name: "Standard",
+    badge: "Most Popular",
+  },
+  premium: {
+    name: "Premium",
+    badge: "Full Power",
+  },
+};
 
 export default function Individuals() {
   const [, setLocation] = useLocation();
+  const [interval, setInterval] = useState<'monthly' | 'annual'>('monthly');
   const [searchTerm, setSearchTerm] = useState("");
   const [locationFilter, setLocationFilter] = useState("all");
   const [industryFilter, setIndustryFilter] = useState("all");
@@ -57,6 +92,19 @@ export default function Individuals() {
   const { data: jobsData, isLoading } = useQuery<{ success: boolean; count: number; jobs: Job[] }>({
     queryKey: ["/api/jobs?status=Live"],
   });
+
+  // Fetch pricing plans from database
+  const { data: pricingData, isLoading: pricingLoading } = useQuery<{ success: boolean; plans: Plan[] }>({
+    queryKey: ['/api/public/plans'],
+  });
+
+  // Filter plans for individual product
+  const plans = pricingData?.plans || [];
+  const selectedPlans = {
+    free: plans.find(p => p.plan.product === 'individual' && p.plan.tier === 'free' && p.plan.interval === interval),
+    standard: plans.find(p => p.plan.product === 'individual' && p.plan.tier === 'standard' && p.plan.interval === interval),
+    premium: plans.find(p => p.plan.product === 'individual' && p.plan.tier === 'premium' && p.plan.interval === interval),
+  };
 
   const handleCreateCVClick = () => {
     if (!user) {
@@ -133,10 +181,112 @@ export default function Individuals() {
         <h2 className="text-3xl md:text-4xl font-serif font-semibold text-center mb-4 text-white-brand" data-testid="text-pricing-title">
           Pricing for Job Seekers
         </h2>
-        <p className="text-center mb-12 max-w-2xl mx-auto text-[#ffffff]">
+        <p className="text-center mb-8 max-w-2xl mx-auto text-[#ffffff]">
           Find your next opportunity with our free or premium plans. All plans include profile creation and job search tools.
         </p>
-        <PricingTable plans={individualPricingPlans} />
+
+        {/* Billing Interval Toggle */}
+        <div className="flex justify-center mb-12">
+          <Tabs value={interval} onValueChange={(v) => setInterval(v as 'monthly' | 'annual')} className="w-auto">
+            <TabsList data-testid="toggle-billing-interval">
+              <TabsTrigger value="monthly" data-testid="tab-monthly">
+                Monthly
+              </TabsTrigger>
+              <TabsTrigger value="annual" data-testid="tab-annual">
+                Annual
+                <Badge variant="secondary" className="ml-2 text-xs">Save 17%</Badge>
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+
+        {pricingLoading ? (
+          <div className="flex justify-center py-12" data-testid="loading-pricing">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          </div>
+        ) : (
+          <div key={`individual-${interval}`} className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-6xl mx-auto">
+            {Object.entries(selectedPlans).map(([tier, planData]) => {
+              if (!planData) return null;
+              
+              const { plan, entitlements } = planData;
+              const tierInfo = TIER_INFO[tier as keyof typeof TIER_INFO];
+              const isPopular = tier === 'standard';
+              
+              return (
+                <Card 
+                  key={`individual-${tier}`} 
+                  className={isPopular ? "border-primary border-2" : ""}
+                  data-testid={`card-plan-individual-${tier}`}
+                >
+                  <CardHeader>
+                    {isPopular && (
+                      <Badge className="w-fit mb-2" data-testid="badge-popular-individual">
+                        {tierInfo.badge}
+                      </Badge>
+                    )}
+                    <CardTitle className="text-2xl" data-testid={`title-individual-${tier}`}>
+                      {tierInfo.name}
+                    </CardTitle>
+                    <CardDescription data-testid={`description-individual-${tier}`}>
+                      {plan.description}
+                    </CardDescription>
+                    
+                    <div className="mt-4">
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-4xl font-bold" data-testid={`price-individual-${tier}`}>
+                          R{parseFloat(plan.priceMonthly).toLocaleString()}
+                        </span>
+                        <span className="text-muted-foreground">
+                          /{interval === 'monthly' ? 'mo' : 'year'}
+                        </span>
+                      </div>
+                      {interval === 'annual' && parseFloat(plan.priceMonthly) > 0 && (
+                        <p className="text-sm text-muted-foreground mt-1">
+                          R{(parseFloat(plan.priceMonthly) / 12).toFixed(0)}/month billed annually
+                        </p>
+                      )}
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="space-y-4">
+                    <Button 
+                      className="w-full"
+                      variant={isPopular ? "default" : "outline"}
+                      onClick={() => setLocation('/login')}
+                      data-testid={`button-signup-${tier}`}
+                    >
+                      {tier === 'free' ? 'Get Started' : 'Upgrade Now'}
+                    </Button>
+
+                    <div className="space-y-3">
+                      <p className="font-semibold text-sm">Features:</p>
+                      {entitlements
+                        .filter(ent => ent.featureKind === 'TOGGLE' ? ent.enabled === 1 : true)
+                        .slice(0, 8)
+                        .map((ent, idx) => (
+                          <div key={idx} className="flex items-start gap-2">
+                            <Check className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+                            <div className="text-sm">
+                              <span className="font-medium">{ent.featureName}</span>
+                              {ent.featureKind === 'QUOTA' && ent.monthlyCap !== null && (
+                                <span className="text-muted-foreground">
+                                  {' '}({ent.monthlyCap === -1 ? 'Unlimited' : `${ent.monthlyCap} ${ent.unit || 'per month'}`})
+                                </span>
+                              )}
+                              {ent.featureKind === 'METERED' && (
+                                <span className="text-muted-foreground"> (Pay as you go)</span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
       </Section>
 
       <Section>
@@ -501,14 +651,24 @@ export default function Individuals() {
                     </div>
 
                     <div className="mb-4">
-                      <h4 className="font-semibold text-sm mb-2 text-white-brand">About the role:</h4>
-                      <p className="text-slate text-sm mb-3 line-clamp-3" data-testid="text-job-description">
-                        {job.description}
-                      </p>
-                      <h4 className="font-semibold text-sm mb-2 text-white-brand">Requirements:</h4>
-                      <p className="text-slate text-sm line-clamp-2" data-testid="text-job-requirements">
-                        {job.requirements}
-                      </p>
+                      {(job.core?.summary || job.description) && (
+                        <>
+                          <h4 className="font-semibold text-sm mb-2 text-white-brand">About the role:</h4>
+                          <p className="text-slate text-sm mb-3 line-clamp-3" data-testid="text-job-description">
+                            {job.core?.summary || job.description}
+                          </p>
+                        </>
+                      )}
+                      {((job.core?.qualifications && job.core.qualifications.length > 0) || job.requirements) && (
+                        <>
+                          <h4 className="font-semibold text-sm mb-2 text-white-brand">Requirements:</h4>
+                          <p className="text-slate text-sm line-clamp-2" data-testid="text-job-requirements">
+                            {job.core?.qualifications 
+                              ? job.core.qualifications.join(', ')
+                              : job.requirements}
+                          </p>
+                        </>
+                      )}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-3">

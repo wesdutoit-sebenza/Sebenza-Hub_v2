@@ -48,6 +48,9 @@ export interface IStorage {
   getInterviewsByInterviewer(interviewerUserId: string): Promise<Interview[]>;
   updateInterview(id: string, updates: Partial<InsertInterview>): Promise<void>;
   getUpcomingInterviews(organizationId: string, limit?: number): Promise<Interview[]>;
+  
+  // Corporate Clients (placeholder - actual implementation uses db directly in routes)
+  // These methods are defined for interface completeness but routes use direct db queries
 }
 
 export class MemStorage implements IStorage {

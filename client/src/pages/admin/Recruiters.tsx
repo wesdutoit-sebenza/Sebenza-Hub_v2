@@ -33,18 +33,24 @@ export default function RecruitersAdmin() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
   const { data: recruiters = [], isLoading, refetch } = useQuery<Recruiter[]>({
-    queryKey: ['/api/admin/recruiters', { 
-      search: searchQuery || undefined, 
-      verificationStatus: statusFilter !== 'all' ? statusFilter : undefined 
-    }],
+    queryKey: ['/api/admin/recruiters', searchQuery, statusFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (searchQuery) params.append('search', searchQuery);
+      if (statusFilter !== 'all') params.append('verificationStatus', statusFilter);
+      const queryString = params.toString();
+      const url = `/api/admin/recruiters${queryString ? `?${queryString}` : ''}`;
+      const response = await fetch(url, { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to fetch recruiters');
+      return response.json();
+    },
+    select: (data: any) => data.recruiters || [],
   });
 
   const verifyMutation = useMutation({
     mutationFn: async ({ id, verificationStatus }: { id: string; verificationStatus: string }) => {
-      return apiRequest<{ success: boolean }>(`/api/admin/recruiters/${id}/verify`, {
-        method: 'PATCH',
-        body: JSON.stringify({ verificationStatus }),
-      });
+      const response = await apiRequest('PATCH', `/api/admin/recruiters/${id}/verify`, { verificationStatus });
+      return response.json();
     },
     onSuccess: () => {
       toast({ title: "Recruiter verification status updated" });
@@ -141,6 +147,50 @@ export default function RecruitersAdmin() {
                 data-testid={`button-reject-${row.profile.id}`}
               >
                 Reject
+              </Button>
+            </>
+          )}
+          {row.profile.verificationStatus === 'approved' && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => verifyMutation.mutate({ id: row.profile.id, verificationStatus: 'pending' })}
+                disabled={verifyMutation.isPending}
+                data-testid={`button-revoke-${row.profile.id}`}
+              >
+                Revoke
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => verifyMutation.mutate({ id: row.profile.id, verificationStatus: 'rejected' })}
+                disabled={verifyMutation.isPending}
+                data-testid={`button-reject-${row.profile.id}`}
+              >
+                Reject
+              </Button>
+            </>
+          )}
+          {row.profile.verificationStatus === 'rejected' && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => verifyMutation.mutate({ id: row.profile.id, verificationStatus: 'approved' })}
+                disabled={verifyMutation.isPending}
+                data-testid={`button-approve-${row.profile.id}`}
+              >
+                Approve
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => verifyMutation.mutate({ id: row.profile.id, verificationStatus: 'pending' })}
+                disabled={verifyMutation.isPending}
+                data-testid={`button-reset-${row.profile.id}`}
+              >
+                Reset
               </Button>
             </>
           )}

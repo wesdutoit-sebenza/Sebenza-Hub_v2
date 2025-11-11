@@ -217,7 +217,7 @@ export const SKILLS_BY_CATEGORY: SkillCategory[] = [
 ] as const;
 
 // Flatten all skills for easy lookup
-export const ALL_SKILLS = SKILLS_BY_CATEGORY.flatMap(cat => cat.skills);
+export const ALL_SKILLS = SKILLS_BY_CATEGORY.flatMap((cat) => cat.skills);
 
 // Get category for a skill
 export function getCategoryForSkill(skill: string): string | undefined {

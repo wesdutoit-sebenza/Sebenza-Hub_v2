@@ -1,27 +1,82 @@
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PageHeader from "@/components/PageHeader";
 import Section from "@/components/Section";
 import Stat from "@/components/Stat";
 import FAQAccordion from "@/components/FAQAccordion";
-import PricingTable from "@/components/PricingTable";
 import {
   CheckCircle,
   FileText,
   Kanban,
   Download,
+  Check,
+  Loader2,
 } from "lucide-react";
-import { recruiterPricingPlans, corporatePricingPlans } from "@/data";
+
+interface Plan {
+  plan: {
+    id: string;
+    product: 'individual' | 'recruiter' | 'corporate';
+    tier: 'free' | 'standard' | 'premium';
+    name: string;
+    description: string;
+    priceMonthly: string;
+    interval: 'monthly' | 'annual';
+    isPublic: number;
+  };
+  entitlements: Array<{
+    featureKey: string;
+    featureName: string;
+    featureDescription: string;
+    featureKind: 'TOGGLE' | 'QUOTA' | 'METERED';
+    enabled: number;
+    monthlyCap: number | null;
+    unit: string | null;
+  }>;
+}
+
+const TIER_INFO = {
+  free: {
+    name: "Free",
+    badge: "Get Started",
+  },
+  standard: {
+    name: "Standard",
+    badge: "Most Popular",
+  },
+  premium: {
+    name: "Premium",
+    badge: "Full Power",
+  },
+};
 
 export default function Recruiters() {
   const [organizationType, setOrganizationType] = useState<
     "agency" | "corporate"
   >("agency");
+  const [interval, setInterval] = useState<'monthly' | 'annual'>('monthly');
 
   useEffect(() => {
     document.title = "For Recruiters | Reduce noise. Faster shortlists.";
   }, []);
+
+  // Fetch pricing plans from database
+  const { data, isLoading } = useQuery<{ success: boolean; plans: Plan[] }>({
+    queryKey: ['/api/public/plans'],
+  });
+
+  // Filter plans based on organization type and interval
+  const plans = data?.plans || [];
+  const currentProduct = organizationType === "agency" ? "recruiter" : "corporate";
+  const selectedPlans = {
+    free: plans.find(p => p.plan.product === currentProduct && p.plan.tier === 'free' && p.plan.interval === interval),
+    standard: plans.find(p => p.plan.product === currentProduct && p.plan.tier === 'standard' && p.plan.interval === interval),
+    premium: plans.find(p => p.plan.product === currentProduct && p.plan.tier === 'premium' && p.plan.interval === interval),
+  };
 
   const agencyFeatures = [
     {
@@ -138,18 +193,126 @@ export default function Recruiters() {
             ? "Pricing for Recruiting Agencies"
             : "Pricing for Corporate Companies"}
         </h2>
-        <p className="text-center mb-12 max-w-2xl mx-auto text-[#ffffff]">
+        <p className="text-center mb-8 max-w-2xl mx-auto text-[#ffffff]">
           {organizationType === "agency"
             ? "Choose the plan that fits your recruitment needs. All plans include POPIA compliance and WhatsApp integration."
             : "Enterprise-grade hiring solutions with EE/AA compliance and multi-department support. All plans include POPIA compliance."}
         </p>
-        <PricingTable
-          plans={
-            organizationType === "agency"
-              ? recruiterPricingPlans
-              : corporatePricingPlans
-          }
-        />
+
+        {/* Billing Interval Toggle */}
+        <div className="flex justify-center mb-12">
+          <Tabs value={interval} onValueChange={(v) => setInterval(v as 'monthly' | 'annual')} className="w-auto">
+            <TabsList data-testid="toggle-billing-interval">
+              <TabsTrigger value="monthly" data-testid="tab-monthly">
+                Monthly
+              </TabsTrigger>
+              <TabsTrigger value="annual" data-testid="tab-annual">
+                Annual
+                <Badge variant="secondary" className="ml-2 text-xs">Save 17%</Badge>
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+
+        {isLoading ? (
+          <div className="flex justify-center py-12" data-testid="loading-pricing">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          </div>
+        ) : (
+          <div key={`${currentProduct}-${interval}`} className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-6xl mx-auto">
+            {Object.entries(selectedPlans).map(([tier, planData]) => {
+              if (!planData) return null;
+              
+              const { plan, entitlements } = planData;
+              const tierInfo = TIER_INFO[tier as keyof typeof TIER_INFO];
+              const isPopular = tier === 'standard';
+              
+              return (
+                <Card 
+                  key={`${currentProduct}-${tier}`} 
+                  className={isPopular ? "border-primary border-2" : ""}
+                  data-testid={`card-plan-${currentProduct}-${tier}`}
+                >
+                  <CardHeader>
+                    {isPopular && (
+                      <Badge className="w-fit mb-2" data-testid={`badge-popular-${currentProduct}`}>
+                        {tierInfo.badge}
+                      </Badge>
+                    )}
+                    <CardTitle className="text-2xl" data-testid={`title-${currentProduct}-${tier}`}>
+                      {tierInfo.name}
+                    </CardTitle>
+                    <CardDescription data-testid={`description-${currentProduct}-${tier}`}>
+                      {plan.description}
+                    </CardDescription>
+                    
+                    <div className="mt-4">
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-4xl font-bold" data-testid={`price-${currentProduct}-${tier}`}>
+                          R{parseFloat(plan.priceMonthly).toLocaleString()}
+                        </span>
+                        <span className="text-muted-foreground">
+                          /{interval === 'monthly' ? 'mo' : 'year'}
+                        </span>
+                      </div>
+                      {interval === 'annual' && parseFloat(plan.priceMonthly) > 0 && (
+                        <p className="text-sm text-muted-foreground mt-1">
+                          R{(parseFloat(plan.priceMonthly) / 12).toFixed(0)}/month billed annually
+                        </p>
+                      )}
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="space-y-4">
+                    <Button 
+                      className="w-full" 
+                      variant={isPopular ? "default" : "outline"}
+                      onClick={() => window.location.href = '/login'}
+                      data-testid={`button-select-${currentProduct}-${tier}`}
+                    >
+                      {tier === 'free' ? 'Get Started' : 'Upgrade Now'}
+                    </Button>
+
+                    <div className="space-y-2">
+                      <p className="text-sm font-semibold">Features:</p>
+                      {entitlements
+                        .filter(ent => {
+                          // Only show enabled features
+                          if (ent.featureKind === 'TOGGLE') {
+                            return ent.enabled === 1;
+                          }
+                          // Show all QUOTA and METERED features
+                          return true;
+                        })
+                        .map((ent) => (
+                          <div 
+                            key={ent.featureKey} 
+                            className="flex items-start gap-2 text-sm"
+                            data-testid={`feature-${currentProduct}-${tier}-${ent.featureKey}`}
+                          >
+                            <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+                            <div>
+                              <span>{ent.featureName}</span>
+                              {ent.featureKind === 'QUOTA' && ent.monthlyCap !== null && (
+                                <span className="text-muted-foreground">
+                                  {' '}({ent.monthlyCap >= 1000000000 ? 'Unlimited' : `${ent.monthlyCap} ${ent.unit || 'per month'}`})
+                                </span>
+                              )}
+                              {ent.featureKind === 'METERED' && (
+                                <span className="text-muted-foreground">
+                                  {' '}(Usage-based)
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
       </Section>
       <Section>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center mb-16">

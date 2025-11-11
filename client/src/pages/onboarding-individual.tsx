@@ -22,6 +22,12 @@ import { GoogleAddressSearch } from "@/components/GoogleAddressSearch";
 import { useEffect, useState } from "react";
 import type { User } from "@shared/schema";
 
+const skillWithDetailsSchema = z.object({
+  skill: z.string(),
+  level: z.enum(["Basic", "Intermediate", "Expert"]),
+  priority: z.enum(["Must-Have", "Nice-to-Have"]),
+});
+
 const formSchema = z.object({
   firstName: z.string().min(2, "First name must be at least 2 characters"),
   surname: z.string().min(2, "Surname must be at least 2 characters"),
@@ -36,7 +42,7 @@ const formSchema = z.object({
   jobTitle: z.string().min(1, "Please select a job title"),
   customJobTitle: z.string().optional(),
   experienceLevel: z.enum(['entry', 'intermediate', 'senior', 'executive']),
-  skills: z.array(z.string()).min(1, "Please select at least one skill").max(10, "Maximum 10 skills allowed"),
+  skills: z.array(skillWithDetailsSchema).min(1, "Please select at least one skill").max(10, "Maximum 10 skills allowed"),
   isPublic: z.boolean().default(true),
   dataConsent: z.boolean().refine((val) => val === true, {
     message: "You must agree to the data collection policy (POPIA compliance)",
@@ -132,6 +138,9 @@ export default function OnboardingIndividual() {
       }
       const fullTelephone = phoneNumber ? `${data.countryCode} ${phoneNumber}` : "";
       
+      // Transform skills from SkillWithDetails[] to string[] for backend
+      const skillNames = data.skills.map(s => s.skill);
+      
       const res = await apiRequest('POST', '/api/profile/candidate', {
         fullName,
         province: data.province,
@@ -143,7 +152,7 @@ export default function OnboardingIndividual() {
         telephone: fullTelephone,
         jobTitle: finalJobTitle,
         experienceLevel: data.experienceLevel,
-        skills: data.skills,
+        skills: skillNames,
         isPublic: data.isPublic ? 1 : 0,
         popiaConsentGiven: data.dataConsent ? 1 : 0,
       });

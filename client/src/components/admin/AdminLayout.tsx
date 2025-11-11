@@ -22,6 +22,9 @@ import {
   FileText,
   AlertTriangle,
   Target,
+  CreditCard,
+  Settings2,
+  Package,
 } from "lucide-react";
 
 const menuItems = [
@@ -64,6 +67,21 @@ const menuItems = [
     title: "Fraud Detection",
     url: "/admin/fraud",
     icon: AlertTriangle,
+  },
+  {
+    title: "Billing",
+    url: "/admin/billing",
+    icon: CreditCard,
+  },
+  {
+    title: "Feature Management",
+    url: "/admin/features",
+    icon: Settings2,
+  },
+  {
+    title: "Plan Management",
+    url: "/admin/plans",
+    icon: Package,
   },
 ];
 

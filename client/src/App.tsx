@@ -4,12 +4,15 @@ import { queryClient } from "./lib/queryClient";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { UpgradeProvider } from "./contexts/UpgradeContext";
+import { useRouteGuard } from "@/hooks/use-route-guard";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import Home from "@/pages/Home";
 import Recruiters from "@/pages/Recruiters";
 import Individuals from "@/pages/Individuals";
 import ContactUs from "@/pages/ContactUs";
+import Pricing from "@/pages/Pricing";
 import JobDetail from "@/pages/JobDetail";
 import Screening from "@/pages/screening";
 import Login from "@/pages/login";
@@ -44,6 +47,9 @@ import AdminCandidates from "@/pages/admin/Candidates";
 import AdminRoles from "@/pages/admin/Roles";
 import AdminCVs from "@/pages/admin/CVs";
 import AdminFraudDetection from "@/pages/admin/FraudDetection";
+import AdminBilling from "@/pages/admin/Billing";
+import AdminFeatures from "@/pages/admin/Features";
+import AdminPlans from "@/pages/admin/Plans";
 
 // Individuals Dashboard pages
 import { IndividualsLayout } from "@/components/individuals/IndividualsLayout";
@@ -71,6 +77,7 @@ import RecruiterDashboardTestDetails from "@/pages/dashboard/recruiter/TestDetai
 import RecruiterDashboardScheduling from "@/pages/dashboard/recruiter/Scheduling";
 import RecruiterDashboardBilling from "@/pages/dashboard/recruiter/Billing";
 import RecruiterDashboardSettings from "@/pages/dashboard/recruiter/Settings";
+import RecruiterDashboardClients from "@/pages/recruiter/CorporateClients";
 
 function AdminRouter() {
   return (
@@ -84,6 +91,9 @@ function AdminRouter() {
         <Route path="/admin/roles" component={AdminRoles} />
         <Route path="/admin/cvs" component={AdminCVs} />
         <Route path="/admin/fraud" component={AdminFraudDetection} />
+        <Route path="/admin/billing" component={AdminBilling} />
+        <Route path="/admin/features" component={AdminFeatures} />
+        <Route path="/admin/plans" component={AdminPlans} />
         <Route path="/admin" component={() => {
           const [, navigate] = useLocation();
           navigate("/admin/overview");
@@ -129,6 +139,7 @@ function RecruitersRouter() {
         <Route path="/dashboard/recruiter/jobs" component={RecruiterDashboardJobs} />
         <Route path="/dashboard/recruiter/roles" component={RecruiterDashboardRoles} />
         <Route path="/dashboard/recruiter/candidates" component={RecruiterDashboardCandidates} />
+        <Route path="/dashboard/recruiter/clients" component={RecruiterDashboardClients} />
         <Route path="/dashboard/recruiter/tests" component={RecruiterDashboardTests} />
         <Route path="/dashboard/recruiter/scheduling" component={RecruiterDashboardScheduling} />
         <Route path="/dashboard/recruiter/billing" component={RecruiterDashboardBilling} />
@@ -156,6 +167,7 @@ function Router() {
       <Route path="/recruiters" component={Recruiters} />
       <Route path="/individuals" component={Individuals} />
       <Route path="/contact" component={ContactUs} />
+      <Route path="/pricing" component={Pricing} />
       <Route path="/jobs/:id" component={JobDetail} />
       <Route path="/individuals/job-searches" component={IndividualDashboardManualJobSearch} />
       <Route path="/screening" component={Screening} />
@@ -178,6 +190,9 @@ function Router() {
       <Route path="/admin/roles" component={() => <AdminRouter />} />
       <Route path="/admin/cvs" component={() => <AdminRouter />} />
       <Route path="/admin/fraud" component={() => <AdminRouter />} />
+      <Route path="/admin/billing" component={() => <AdminRouter />} />
+      <Route path="/admin/features" component={() => <AdminRouter />} />
+      <Route path="/admin/plans" component={() => <AdminRouter />} />
       <Route path="/admin" component={() => <AdminRouter />} />
       <Route path="/dashboard/individual/profile" component={() => <IndividualsRouter />} />
       <Route path="/dashboard/individual/cvs" component={() => <IndividualsRouter />} />
@@ -197,6 +212,7 @@ function Router() {
       <Route path="/dashboard/recruiter/jobs" component={() => <RecruitersRouter />} />
       <Route path="/dashboard/recruiter/roles" component={() => <RecruitersRouter />} />
       <Route path="/dashboard/recruiter/candidates" component={() => <RecruitersRouter />} />
+      <Route path="/dashboard/recruiter/clients" component={() => <RecruitersRouter />} />
       <Route path="/dashboard/recruiter/tests" component={() => <RecruitersRouter />} />
       <Route path="/dashboard/recruiter/scheduling" component={() => <RecruitersRouter />} />
       <Route path="/dashboard/recruiter/billing" component={() => <RecruitersRouter />} />
@@ -207,19 +223,30 @@ function Router() {
   );
 }
 
+function AppContent() {
+  // Route guard runs once at top level to redirect users as needed
+  useRouteGuard();
+
+  return (
+    <div className="min-h-screen flex flex-col bg-charcoal">
+      <Header />
+      <div className="flex-1">
+        <Router />
+      </div>
+      <Footer />
+    </div>
+  );
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <TooltipProvider>
-          <div className="min-h-screen flex flex-col bg-charcoal">
-            <Header />
-            <div className="flex-1">
-              <Router />
-            </div>
-            <Footer />
-          </div>
-          <Toaster />
+          <UpgradeProvider>
+            <AppContent />
+            <Toaster />
+          </UpgradeProvider>
         </TooltipProvider>
       </AuthProvider>
     </QueryClientProvider>

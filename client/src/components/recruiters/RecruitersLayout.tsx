@@ -18,6 +18,7 @@ import {
   Briefcase,
   Target,
   Users,
+  Building2,
   ClipboardCheck,
   Calendar,
   CreditCard,
@@ -29,6 +30,11 @@ const menuItems = [
     title: "Profile",
     url: "/dashboard/recruiter/profile",
     icon: User,
+  },
+  {
+    title: "Corporate Clients",
+    url: "/dashboard/recruiter/clients",
+    icon: Building2,
   },
   {
     title: "Job Postings",

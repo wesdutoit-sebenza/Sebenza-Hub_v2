@@ -142,6 +142,9 @@ export default function Home() {
                 src={recruitmentMeetingImg} 
                 alt="Recruitment meeting and planning" 
                 className="w-full aspect-[4/3] object-cover"
+                loading="lazy"
+                width="800"
+                height="600"
               />
             </div>
             <div className="flex items-start gap-3">
@@ -161,6 +164,9 @@ export default function Home() {
                 src={teamCollabImg} 
                 alt="Team collaborating on candidate selection" 
                 className="w-full aspect-[4/3] object-cover"
+                loading="lazy"
+                width="800"
+                height="600"
               />
             </div>
             <div className="flex items-start gap-3">
@@ -180,6 +186,9 @@ export default function Home() {
                 src={handshakeImg} 
                 alt="Successful interview conclusion" 
                 className="w-full aspect-[4/3] object-cover"
+                loading="lazy"
+                width="800"
+                height="600"
               />
             </div>
             <div className="flex items-start gap-3">
@@ -199,6 +208,9 @@ export default function Home() {
                 src={contractSigningImg} 
                 alt="Happy employee signing employment contract" 
                 className="w-full aspect-[4/3] object-cover"
+                loading="lazy"
+                width="800"
+                height="600"
               />
             </div>
             <div className="flex items-start gap-3">
@@ -245,6 +257,9 @@ export default function Home() {
                   src={hrTeamImg} 
                   alt="HR team reviewing candidate CVs" 
                   className="w-full aspect-video object-cover"
+                  loading="lazy"
+                  width="800"
+                  height="450"
                 />
               </div>
               <h3 className="text-2xl font-serif font-semibold mb-2 text-[#70787e]" data-testid="text-teaser-title">For Recruiters</h3>
@@ -265,6 +280,9 @@ export default function Home() {
                   src={blueCollarImg} 
                   alt="Blue-collar workers at morning briefing" 
                   className="w-full aspect-video object-cover"
+                  loading="lazy"
+                  width="800"
+                  height="450"
                 />
               </div>
               <h3 className="text-2xl font-serif font-semibold mb-2 text-[#70787e]" data-testid="text-teaser-title">For Businesses</h3>
@@ -285,6 +303,9 @@ export default function Home() {
                   src={jobSeekerImg} 
                   alt="Young job seeker collaborating with recruiter" 
                   className="w-full aspect-video object-cover"
+                  loading="lazy"
+                  width="800"
+                  height="450"
                 />
               </div>
               <h3 className="text-2xl font-serif font-semibold mb-2 text-[#70787e]" data-testid="text-teaser-title">For Individuals</h3>

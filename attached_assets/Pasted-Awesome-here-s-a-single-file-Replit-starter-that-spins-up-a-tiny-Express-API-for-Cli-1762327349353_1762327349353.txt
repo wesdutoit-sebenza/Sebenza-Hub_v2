@@ -1,0 +1,515 @@
+Awesome — here’s a **single-file Replit starter** that spins up:
+
+* a tiny **Express API** for Clients & Jobs
+* a clean, **one-page UI** (Tailwind + Montserrat) that lists clients, lets you add a client, view a client, and add jobs to that client
+* **File-based persistence** (`data.json`) so your test data survives restarts
+
+You can paste this as `index.js` in a fresh **Node.js** Repl and hit Run. That’s it.
+
+---
+
+### 1) Replit setup (once)
+
+1. Create a new **Node.js** Repl → name it `sebenza-clients-starter`
+2. Add a file named **`index.js`** and paste the code below.
+3. Open the **Shell** and run:
+
+```bash
+npm i express nanoid
+```
+
+4. Click **Run**. Replit will show a webview (or open in new tab).
+
+---
+
+### 2) Single-file app (API + UI)
+
+```js
+// index.js
+// Sebenza Hub - "Corporate Clients" single-file starter (API + UI)
+// Run: node index.js  (Replit: click Run after installing express + nanoid)
+
+const express = require("express");
+const { nanoid } = require("nanoid");
+const fs = require("fs");
+const path = require("path");
+
+const app = express();
+app.use(express.json());
+
+// --- Very light persistence (data.json) ---
+const DATA_PATH = path.join(__dirname, "data.json");
+function loadDB() {
+  try {
+    if (!fs.existsSync(DATA_PATH)) {
+      fs.writeFileSync(DATA_PATH, JSON.stringify({ clients: [], jobs: [] }, null, 2));
+    }
+    return JSON.parse(fs.readFileSync(DATA_PATH, "utf8"));
+  } catch (e) {
+    console.error("Failed to read data.json:", e);
+    return { clients: [], jobs: [] };
+  }
+}
+function saveDB(db) {
+  fs.writeFileSync(DATA_PATH, JSON.stringify(db, null, 2));
+}
+let db = loadDB();
+
+// --- Helpers ---
+const ok = (res, data) => res.json(data);
+const created = (res, data) => res.status(201).json(data);
+const notFound = (res, msg = "Not found") => res.status(404).json({ error: msg });
+
+// --- API: Clients ---
+app.get("/api/clients", (req, res) => {
+  const q = String(req.query.q || "").trim().toLowerCase();
+  let out = db.clients
+    .map(c => ({
+      ...c,
+      openRoles: db.jobs.filter(j => j.clientId === c.id && j.status === "open").length,
+    }))
+    .sort((a, b) => (new Date(b.updatedAt) - new Date(a.updatedAt)));
+
+  if (q) out = out.filter(c => c.name.toLowerCase().includes(q) || (c.industry || "").toLowerCase().includes(q));
+  ok(res, out);
+});
+
+app.post("/api/clients", (req, res) => {
+  const { name, website, industry, feePercent, guaranteeDays } = req.body || {};
+  if (!name || !name.trim()) return res.status(400).json({ error: "Client name is required" });
+
+  const now = new Date().toISOString();
+  const client = {
+    id: nanoid(),
+    name: name.trim(),
+    website: website?.trim() || "",
+    industry: industry?.trim() || "",
+    feePercent: typeof feePercent === "number" ? feePercent : null,
+    guaranteeDays: typeof guaranteeDays === "number" ? guaranteeDays : null,
+    contacts: [],
+    createdAt: now,
+    updatedAt: now,
+    // You can extend: beeStatus, locations, paymentTerms, etc.
+  };
+  db.clients.push(client);
+  saveDB(db);
+  created(res, client);
+});
+
+app.get("/api/clients/:id", (req, res) => {
+  const client = db.clients.find(c => c.id === req.params.id);
+  if (!client) return notFound(res, "Client not found");
+
+  const jobs = db.jobs
+    .filter(j => j.clientId === client.id)
+    .sort((a, b) => (new Date(b.createdAt) - new Date(a.createdAt)));
+
+  ok(res, { ...client, jobs });
+});
+
+app.patch("/api/clients/:id", (req, res) => {
+  const idx = db.clients.findIndex(c => c.id === req.params.id);
+  if (idx === -1) return notFound(res, "Client not found");
+  const update = req.body || {};
+
+  db.clients[idx] = {
+    ...db.clients[idx],
+    ...update,
+    updatedAt: new Date().toISOString(),
+  };
+  saveDB(db);
+  ok(res, db.clients[idx]);
+});
+
+// --- API: Jobs (linked to Client) ---
+app.get("/api/clients/:id/jobs", (req, res) => {
+  const client = db.clients.find(c => c.id === req.params.id);
+  if (!client) return notFound(res, "Client not found");
+  const jobs = db.jobs
+    .filter(j => j.clientId === client.id)
+    .sort((a, b) => (new Date(b.createdAt) - new Date(a.createdAt)));
+  ok(res, jobs);
+});
+
+app.post("/api/jobs", (req, res) => {
+  const { clientId, title, location, employmentType, workMode, salaryMin, salaryMax, currency, description, status } = req.body || {};
+  if (!clientId) return res.status(400).json({ error: "clientId is required" });
+  const client = db.clients.find(c => c.id === clientId);
+  if (!client) return notFound(res, "Client not found");
+  if (!title || !title.trim()) return res.status(400).json({ error: "Job title is required" });
+
+  const now = new Date().toISOString();
+  const job = {
+    id: nanoid(),
+    clientId,
+    title: title.trim(),
+    location: location?.trim() || "",
+    employmentType: employmentType?.trim() || "",
+    workMode: workMode?.trim() || "",
+    salaryMin: typeof salaryMin === "number" ? salaryMin : null,
+    salaryMax: typeof salaryMax === "number" ? salaryMax : null,
+    currency: currency || "ZAR",
+    description: description || "",
+    status: status || "open", // open | on-hold | closed
+    createdAt: now,
+    updatedAt: now,
+  };
+  db.jobs.push(job);
+
+  // touch client
+  const cIdx = db.clients.findIndex(c => c.id === clientId);
+  db.clients[cIdx].updatedAt = now;
+
+  saveDB(db);
+  created(res, job);
+});
+
+// --- Frontend (single page) ---
+app.get("/", (req, res) => {
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.end(`
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Sebenza Hub — Corporate Clients</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root{
+      --ink:#171b1d; --slate:#354147; --light:#f0f2f3; --gold:#eda51d; --brown:#5e3a17; --amber:#ae6d0f;
+    }
+    body { font-family: 'Montserrat', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color: var(--ink); }
+    .chip { @apply inline-flex items-center px-2 py-1 rounded-full text-xs border; }
+    .btn { @apply px-3 py-2 rounded-xl border hover:bg-[color:var(--light)] transition; }
+    .btn-gold { background: var(--gold); color: white; }
+    .card { @apply border rounded-2xl p-4; }
+    .input { @apply w-full rounded-xl border px-3 py-2 outline-none focus:ring-2 focus:ring-[color:var(--gold)]; }
+    .tab { @apply px-3 py-2 rounded-xl border; }
+    .tab-active { background: var(--gold); color: white; border-color: var(--gold); }
+  </style>
+</head>
+<body class="bg-white">
+  <div class="grid grid-cols-12 h-screen">
+    <!-- Sidebar -->
+    <aside class="col-span-3 border-r p-4 space-y-4">
+      <div class="flex items-center justify-between">
+        <h1 class="text-lg font-semibold">Corporate Clients</h1>
+        <button id="newClientBtn" class="btn">+ New</button>
+      </div>
+      <input id="search" class="input" placeholder="Search clients…" />
+      <div id="clientList" class="space-y-2 overflow-y-auto h-[75vh]"></div>
+    </aside>
+
+    <!-- Main -->
+    <main class="col-span-9 p-4 overflow-y-auto">
+      <div id="empty" class="h-full flex items-center justify-center">
+        <div class="text-center max-w-md">
+          <h2 class="text-xl font-semibold">Select a client</h2>
+          <p class="text-sm text-gray-500">Or create a new one to get started.</p>
+        </div>
+      </div>
+      <div id="clientView" class="hidden space-y-4">
+        <header class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div id="clientLogo" class="w-12 h-12 bg-gray-200 rounded-xl"></div>
+            <div>
+              <div id="clientName" class="text-2xl font-semibold">—</div>
+              <div id="clientMeta" class="text-sm text-gray-500">—</div>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <button id="btnAddJob" class="btn">New Job</button>
+            <button id="btnEditClient" class="btn">Edit</button>
+          </div>
+        </header>
+
+        <nav class="flex gap-2">
+          <button class="tab tab-active" data-tab="overview">OVERVIEW</button>
+          <button class="tab" data-tab="jobs">JOBS</button>
+        </nav>
+
+        <section id="tab-overview" class="grid grid-cols-12 gap-4">
+          <div class="col-span-8 card">
+            <h3 class="font-semibold mb-2">At a glance</h3>
+            <div id="clientAtAGlance" class="text-sm grid grid-cols-2 gap-2"></div>
+          </div>
+          <div class="col-span-4 card">
+            <h3 class="font-semibold mb-2">Quick actions</h3>
+            <div class="flex flex-wrap gap-2">
+              <button class="btn">Share Update</button>
+              <button class="btn">Add Contact</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="tab-jobs" class="hidden">
+          <div id="jobsList" class="grid gap-3"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- Minimal modals (no library) -->
+  <dialog id="dlgNewClient" class="rounded-2xl p-0 w-full max-w-lg">
+    <form method="dialog" class="p-6 space-y-3">
+      <h3 class="text-lg font-semibold">New Client</h3>
+      <input id="nc_name" class="input" placeholder="Client name *" required/>
+      <div class="grid grid-cols-2 gap-3">
+        <input id="nc_website" class="input" placeholder="Website (optional)"/>
+        <input id="nc_industry" class="input" placeholder="Industry (optional)"/>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <input id="nc_fee" class="input" type="number" step="0.01" placeholder="Default fee % (e.g. 12.5)"/>
+        <input id="nc_guarantee" class="input" type="number" placeholder="Guarantee days (e.g. 90)"/>
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <button class="btn" value="cancel">Cancel</button>
+        <button id="nc_save" class="btn btn-gold" value="default">Create</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlgNewJob" class="rounded-2xl p-0 w-full max-w-lg">
+    <form method="dialog" class="p-6 space-y-3">
+      <h3 class="text-lg font-semibold">New Job</h3>
+      <input id="nj_title" class="input" placeholder="Job title *" required/>
+      <div class="grid grid-cols-2 gap-3">
+        <input id="nj_location" class="input" placeholder="Location"/>
+        <input id="nj_type" class="input" placeholder="Employment Type (Permanent/Freelance)"/>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <input id="nj_mode" class="input" placeholder="Work Mode (On-site/Hybrid/Remote)"/>
+        <input id="nj_currency" class="input" placeholder="Currency" value="ZAR"/>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <input id="nj_min" class="input" placeholder="Salary Min" type="number"/>
+        <input id="nj_max" class="input" placeholder="Salary Max" type="number"/>
+      </div>
+      <textarea id="nj_desc" class="input h-24" placeholder="Short description"></textarea>
+      <div class="flex justify-end gap-2 pt-2">
+        <button class="btn" value="cancel">Cancel</button>
+        <button id="nj_save" class="btn btn-gold" value="default">Create</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    const $ = (sel) => document.querySelector(sel);
+    const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+    const API = {
+      listClients: (q="") => fetch("/api/clients?q="+encodeURIComponent(q)).then(r=>r.json()),
+      createClient: (data) => fetch("/api/clients", {method:"POST", headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)}).then(r=>r.json()),
+      getClient: (id) => fetch("/api/clients/"+id).then(r=>r.json()),
+      listJobs: (id) => fetch("/api/clients/"+id+"/jobs").then(r=>r.json()),
+      createJob: (data) => fetch("/api/jobs", {method:"POST", headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)}).then(r=>r.json()),
+    };
+
+    let state = { clients: [], activeId: null };
+
+    function fmt(n){ return new Intl.NumberFormat().format(n); }
+
+    async function refreshClients(){
+      const q = $("#search").value.trim();
+      state.clients = await API.listClients(q);
+      renderClientList();
+    }
+
+    function renderClientList(){
+      const wrap = $("#clientList");
+      wrap.innerHTML = "";
+      state.clients.forEach(c => {
+        const btn = document.createElement("button");
+        btn.className = "w-full text-left p-3 rounded-xl hover:bg-[color:var(--light)]";
+        btn.innerHTML = \`
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="font-semibold">\${c.name}</div>
+              <div class="text-xs text-gray-500">\${c.industry || "—"}</div>
+            </div>
+            <div class="chip">Open roles: \${c.openRoles}</div>
+          </div>\`;
+        btn.onclick = ()=>selectClient(c.id);
+        wrap.appendChild(btn);
+      });
+    }
+
+    async function selectClient(id){
+      state.activeId = id;
+      const data = await API.getClient(id);
+      $("#empty").classList.add("hidden");
+      $("#clientView").classList.remove("hidden");
+
+      $("#clientName").textContent = data.name;
+      $("#clientMeta").textContent = [data.website||"—", data.industry||"—"].join(" • ");
+
+      // At a glance
+      $("#clientAtAGlance").innerHTML = \`
+        <div>Open roles: <strong>\${data.jobs.filter(j=>j.status==="open").length}</strong></div>
+        <div>Avg fee %: <strong>\${data.feePercent ?? "—"}</strong></div>
+        <div>Guarantee: <strong>\${data.guaranteeDays ? data.guaranteeDays + " days" : "—"}</strong></div>
+        <div>Updated: <strong>\${new Date(data.updatedAt).toLocaleString()}</strong></div>
+      \`;
+
+      // Jobs tab
+      renderJobs(data.jobs);
+
+      // Tab handling
+      $$(".tab").forEach(t => t.classList.remove("tab-active"));
+      document.querySelector('[data-tab="overview"]').classList.add("tab-active");
+      $("#tab-overview").classList.remove("hidden");
+      $("#tab-jobs").classList.add("hidden");
+    }
+
+    function renderJobs(jobs){
+      const el = $("#jobsList");
+      el.innerHTML = "";
+      jobs.forEach(j => {
+        const card = document.createElement("div");
+        card.className = "card";
+        card.innerHTML = \`
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="font-semibold">\${j.title}</div>
+              <div class="text-xs text-gray-500">\${j.location || "—"} • \${j.workMode || "—"} • \${j.employmentType || "—"}</div>
+            </div>
+            <div class="chip">Status: \${j.status}</div>
+          </div>
+          <div class="mt-2 text-sm">\${j.currency} \${j.salaryMin?fmt(j.salaryMin):"—"} - \${j.salaryMax?fmt(j.salaryMax):"—"}</div>
+        \`;
+        el.appendChild(card);
+      });
+    }
+
+    // Search
+    $("#search").addEventListener("input", () => {
+      clearTimeout(window.__q);
+      window.__q = setTimeout(refreshClients, 250);
+    });
+
+    // Tabs
+    $$(".tab").forEach(btn => {
+      btn.addEventListener("click", () => {
+        $$(".tab").forEach(t => t.classList.remove("tab-active"));
+        btn.classList.add("tab-active");
+        const t = btn.dataset.tab;
+        $("#tab-overview").classList.toggle("hidden", t !== "overview");
+        $("#tab-jobs").classList.toggle("hidden", t !== "jobs");
+      });
+    });
+
+    // New Client modal
+    const dlgNewClient = $("#dlgNewClient");
+    $("#newClientBtn").onclick = () => dlgNewClient.showModal();
+    $("#nc_save").onclick = async (e) => {
+      e.preventDefault();
+      const name = $("#nc_name").value.trim();
+      if(!name) return;
+      const payload = {
+        name,
+        website: $("#nc_website").value.trim(),
+        industry: $("#nc_industry").value.trim(),
+        feePercent: $("#nc_fee").value ? Number($("#nc_fee").value) : null,
+        guaranteeDays: $("#nc_guarantee").value ? Number($("#nc_guarantee").value) : null,
+      };
+      await API.createClient(payload);
+      dlgNewClient.close();
+      $("#nc_name").value = $("#nc_website").value = $("#nc_industry").value = $("#nc_fee").value = $("#nc_guarantee").value = "";
+      refreshClients();
+    };
+
+    // New Job modal
+    const dlgNewJob = $("#dlgNewJob");
+    $("#btnAddJob").onclick = () => dlgNewJob.showModal();
+    $("#nj_save").onclick = async (e) => {
+      e.preventDefault();
+      if(!state.activeId) return;
+      const payload = {
+        clientId: state.activeId,
+        title: $("#nj_title").value.trim(),
+        location: $("#nj_location").value.trim(),
+        employmentType: $("#nj_type").value.trim(),
+        workMode: $("#nj_mode").value.trim(),
+        salaryMin: $("#nj_min").value ? Number($("#nj_min").value) : null,
+        salaryMax: $("#nj_max").value ? Number($("#nj_max").value) : null,
+        currency: $("#nj_currency").value.trim() || "ZAR",
+        description: $("#nj_desc").value.trim(),
+        status: "open",
+      };
+      if(!payload.title){ return; }
+      await API.createJob(payload);
+      dlgNewJob.close();
+      ["#nj_title","#nj_location","#nj_type","#nj_mode","#nj_min","#nj_max","#nj_currency","#nj_desc"].forEach(id => $(id).value = "");
+      // reload the active client
+      selectClient(state.activeId);
+      refreshClients();
+    };
+
+    // Edit client (light inline example)
+    $("#btnEditClient").onclick = async () => {
+      if(!state.activeId) return;
+      const data = await API.getClient(state.activeId);
+      const fee = prompt("Default fee %", data.feePercent ?? "");
+      const guar = prompt("Guarantee days", data.guaranteeDays ?? "");
+      await fetch("/api/clients/"+state.activeId, {
+        method: "PATCH", headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          feePercent: fee === "" || fee === null ? null : Number(fee),
+          guaranteeDays: guar === "" || guar === null ? null : Number(guar),
+        })
+      });
+      selectClient(state.activeId);
+      refreshClients();
+    };
+
+    // Init
+    refreshClients();
+  </script>
+</body>
+</html>
+  `);
+});
+
+// --- Start server ---
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log("Sebenza Clients starter running on http://localhost:" + PORT);
+});
+```
+
+---
+
+### 3) What you get out-the-box
+
+* **Clients list** with search and “open roles” badge
+* **Create Client** (name, website, industry, fee %, guarantee)
+* **Client 360 (light)**: overview + “At a glance” metrics
+* **Jobs tab**: add jobs linked to the client, show status and salary range
+* **Edit Client** quick inline (fee %, guarantee)
+* **Persists** in `data.json` (auto-created)
+
+This is intentionally lean and fast to extend.
+
+---
+
+### 4) How to extend this (next steps)
+
+* **Contacts tab**: add `/api/clients/:id/contacts` + UI modal
+* **Notes/Activity**: `/api/clients/:id/notes` + timeline in Overview
+* **Documents**: integrate S3/R2 and save URLs
+* **SLA & Analytics**: add schema fields + quick KPI tiles
+* **Auth**: gate endpoints with JWT; add roles (Owner/Contributor/Viewer)
+
+---
+
+### 5) Ready for production later (Prisma + Neon)
+
+When you’re ready to move from `data.json` to Postgres:
+
+1. Add Prisma + Neon and migrate the schema (the model I proposed earlier).
+2. Replace the in-memory/file reads/writes with Prisma queries.
+3. Keep the same routes so your UI stays unchanged.
+
+If you want, I can give you a **Prisma + Neon** version next, still as a compact server + a Vite React page, but split into two files.

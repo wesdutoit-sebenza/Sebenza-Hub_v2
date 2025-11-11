@@ -3,8 +3,9 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertSubscriberSchema, insertJobSchema, insertCVSchema, insertCandidateProfileSchema, insertOrganizationSchema, insertRecruiterProfileSchema, insertScreeningJobSchema, insertScreeningCandidateSchema, insertScreeningEvaluationSchema, insertCandidateSchema, insertExperienceSchema, insertEducationSchema, insertCertificationSchema, insertProjectSchema, insertAwardSchema, insertSkillSchema, insertRoleSchema, insertScreeningSchema, insertIndividualPreferencesSchema, insertIndividualNotificationSettingsSchema, type User } from "@shared/schema";
 import { db } from "./db";
-import { users, candidateProfiles, organizations, recruiterProfiles, memberships, jobs, jobApplications, jobFavorites, screeningJobs, screeningCandidates, screeningEvaluations, candidates, experiences, education, certifications, projects, awards, skills, candidateSkills, resumes, roles, screenings, individualPreferences, individualNotificationSettings, fraudDetections, cvs, competencyTests, testSections, testItems, testAttempts, testResponses, insertCompetencyTestSchema, insertTestSectionSchema, insertTestItemSchema, autoSearchPreferences, autoSearchResults } from "@shared/schema";
-import { eq, and, desc, sql, inArray, or } from "drizzle-orm";
+import { users, candidateProfiles, organizations, recruiterProfiles, memberships, jobs, jobApplications, jobFavorites, screeningJobs, screeningCandidates, screeningEvaluations, candidates, experiences, education, certifications, projects, awards, skills, candidateSkills, resumes, roles, screenings, individualPreferences, individualNotificationSettings, fraudDetections, cvs, competencyTests, testSections, testItems, testAttempts, testResponses, insertCompetencyTestSchema, insertTestSectionSchema, insertTestItemSchema, autoSearchPreferences, autoSearchResults, corporateClients, corporateClientContacts, corporateClientEngagements, insertCorporateClientSchema, insertCorporateClientContactSchema, insertCorporateClientEngagementSchema, plans, features, featureEntitlements, subscriptions, usage, paymentEvents, insertFeatureSchema, insertPlanSchema } from "@shared/schema";
+import { sendNewUserSignupEmail, sendRecruiterProfileApprovalEmail } from "./emails";
+import { eq, and, desc, sql, inArray, or, gte } from "drizzle-orm";
 import { authenticateSession, requireRole, type AuthRequest } from "./auth-middleware";
 import { screeningQueue, isQueueAvailable } from "./queue";
 import { z } from "zod";
@@ -12,6 +13,7 @@ import { queueFraudDetection } from "./fraud-queue-helper";
 import { pool } from "./db-pool";
 import { generateUniqueCVReference, generateUniqueJobReference, generateUniqueTestReference } from "./reference-generator";
 import { generateTestBlueprint, validateBlueprint, type GenerateTestInput } from "./ai-test-generation";
+import { checkAllowed, consume } from "./services/entitlements";
 
 // Helper function to enqueue screening jobs for all active roles
 async function enqueueScreeningsForCandidate(candidateId: string) {
@@ -360,6 +362,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
+      // FEATURE GATE: Check job posting quota
+      // Get organization membership to determine correct org ID for billing
+      const [membership] = await db.select()
+        .from(memberships)
+        .where(eq(memberships.userId, user.id))
+        .limit(1);
+      
+      // Use organization ID if user is a member, otherwise use userId as org ID (individual recruiter)
+      const orgHolder = {
+        type: 'org' as const,
+        id: membership?.organizationId || recruiterProfile.userId
+      };
+      
+      // Only check quota for non-draft jobs (Draft jobs are free to create)
+      if (jobStatus !== "Draft") {
+        // Check quota BEFORE processing (but don't consume yet)
+        const allowed = await checkAllowed(orgHolder, 'job_posts', 1);
+        if (!allowed.ok) {
+          const errorMsg = allowed.reason || '';
+          let userMessage = "You've reached your job posting limit.";
+          
+          if (errorMsg.includes('QUOTA_EXCEEDED')) {
+            userMessage = "You've reached your monthly job posting limit. Upgrade your plan to post more jobs.";
+          } else if (errorMsg.includes('FEATURE_NOT_IN_PLAN')) {
+            userMessage = "Job posting is not available in your current plan. Please upgrade.";
+          } else if (errorMsg.includes('FEATURE_DISABLED')) {
+            userMessage = "Job posting is not enabled in your current plan. Please upgrade.";
+          }
+          
+          return res.status(403).json({
+            success: false,
+            message: userMessage,
+          });
+        }
+      }
+      
       // For drafts, skip strict validation
       let validatedData;
       if (jobStatus === "Draft") {
@@ -394,6 +432,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }).returning();
       
       console.log(`New job created: ${job.title} at ${job.company} (Status: ${jobStatus}) - Ref: ${referenceNumber} by user ${user.id}`);
+      
+      // Only consume quota for non-draft jobs (Draft jobs are free to create)
+      if (jobStatus !== "Draft") {
+        // Consume quota AFTER successful creation
+        try {
+          await consume(orgHolder, 'job_posts', 1);
+        } catch (error: any) {
+          console.error('Failed to consume job posting quota after creation:', error);
+          // Job was created successfully, so we log the error but don't fail the request
+        }
+      }
       
       // Queue fraud detection for job posting
       await queueFraudDetection('job_post', job.id, job, job.postedByUserId || undefined);
@@ -498,9 +547,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Normalize legacy skills data
       const normalizedJob = normalizeJobSkills(job);
       
+      // Include basic client information if job is linked to a corporate client
+      let clientInfo = null;
+      if (job.clientId) {
+        const [client] = await db.select({
+          id: corporateClients.id,
+          name: corporateClients.name,
+          industry: corporateClients.industry,
+        })
+          .from(corporateClients)
+          .where(eq(corporateClients.id, job.clientId));
+        
+        if (client) {
+          clientInfo = client;
+        }
+      }
+      
       res.json({
         success: true,
         job: normalizedJob,
+        client: clientInfo,
       });
     } catch (error) {
       console.error("Error fetching job:", error);
@@ -628,7 +694,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const favoriteJobs = await db.select()
         .from(jobs)
-        .where(sql`${jobs.id} = ANY(${jobIds})`);
+        .where(inArray(jobs.id, jobIds));
       
       // Normalize legacy skills data and attach favorite creation date
       const normalizedFavorites = favoriteJobs.map(job => {
@@ -675,6 +741,611 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: false,
         message: "Error checking favorite status.",
       });
+    }
+  });
+
+  // ============================================
+  // CORPORATE CLIENTS ROUTES (for Recruiters)
+  // ============================================
+
+  // Get all clients for recruiter's organization with search and filters
+  app.get("/api/recruiter/clients", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const { q, status, industry, tier } = req.query;
+      
+      // Get recruiter's organization from memberships
+      const [membership] = await db.select()
+        .from(memberships)
+        .where(eq(memberships.userId, user.id))
+        .limit(1);
+      
+      if (!membership) {
+        return res.status(403).json({
+          success: false,
+          message: "No organization membership found.",
+        });
+      }
+      
+      // Build query conditions
+      const conditions: any[] = [eq(corporateClients.agencyOrganizationId, membership.organizationId)];
+      
+      if (status && typeof status === 'string') {
+        conditions.push(eq(corporateClients.status, status));
+      }
+      if (industry && typeof industry === 'string') {
+        conditions.push(eq(corporateClients.industry, industry));
+      }
+      if (tier && typeof tier === 'string') {
+        conditions.push(eq(corporateClients.tier, tier));
+      }
+      
+      // Fetch clients with filters
+      let clients = await db.select()
+        .from(corporateClients)
+        .where(and(...conditions))
+        .orderBy(desc(corporateClients.updatedAt));
+      
+      // Apply search filter if provided
+      if (q && typeof q === 'string') {
+        const searchLower = q.toLowerCase();
+        clients = clients.filter(client => 
+          client.name.toLowerCase().includes(searchLower) ||
+          (client.industry && client.industry.toLowerCase().includes(searchLower)) ||
+          (client.city && client.city.toLowerCase().includes(searchLower))
+        );
+      }
+      
+      // Enrich with job counts for each client
+      const enrichedClients = await Promise.all(
+        clients.map(async (client) => {
+          const clientJobs = await db.select()
+            .from(jobs)
+            .where(eq(jobs.clientId, client.id));
+          
+          const activeJobs = clientJobs.filter(job => {
+            const status = (job.admin as any)?.status;
+            return status === 'Live' || status === 'Paused';
+          });
+          
+          return {
+            ...client,
+            activeJobsCount: activeJobs.length,
+            totalJobsCount: clientJobs.length,
+          };
+        })
+      );
+      
+      res.json({
+        success: true,
+        count: enrichedClients.length,
+        clients: enrichedClients,
+      });
+    } catch (error) {
+      console.error("Error fetching clients:", error);
+      res.status(500).json({
+        success: false,
+        message: "Error fetching clients.",
+      });
+    }
+  });
+
+  // Create a new corporate client
+  app.post("/api/recruiter/clients", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      
+      // Get recruiter's organization from memberships
+      const [membership] = await db.select()
+        .from(memberships)
+        .where(eq(memberships.userId, user.id))
+        .limit(1);
+      
+      if (!membership) {
+        return res.status(403).json({
+          success: false,
+          message: "No organization membership found.",
+        });
+      }
+      
+      // FEATURE GATE: Check corporate clients feature (org-level)
+      const orgHolder = {
+        type: 'org' as const,
+        id: membership.organizationId
+      };
+      
+      const allowed = await checkAllowed(orgHolder, 'corporate_clients');
+      if (!allowed.ok) {
+        return res.status(403).json({
+          success: false,
+          message: "Corporate client management is not available in your current plan. Please upgrade to access this feature.",
+        });
+      }
+      
+      // Validate input
+      const validatedData = insertCorporateClientSchema.parse(req.body);
+      
+      // Create client
+      const [client] = await db.insert(corporateClients).values({
+        ...validatedData,
+        agencyOrganizationId: membership.organizationId,
+      }).returning();
+      
+      console.log(`New corporate client created: ${client.name} by user ${user.id}`);
+      
+      res.status(201).json({
+        success: true,
+        message: "Client created successfully!",
+        client,
+      });
+    } catch (error: any) {
+      console.error("Error creating client:", error);
+      
+      // Log detailed Zod validation errors
+      if (error.name === 'ZodError') {
+        console.error("Validation errors:", JSON.stringify(error.errors, null, 2));
+        return res.status(400).json({
+          success: false,
+          message: "Validation error: " + error.errors.map((e: any) => `${e.path.join('.')}: ${e.message}`).join(', '),
+        });
+      }
+      
+      res.status(400).json({
+        success: false,
+        message: "Error creating client.",
+      });
+    }
+  });
+
+  // Get a specific client with full details (contacts, engagements, jobs)
+  app.get("/api/recruiter/clients/:id", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const { id } = req.params;
+      
+      // Get recruiter's organization from memberships
+      const [membership] = await db.select()
+        .from(memberships)
+        .where(eq(memberships.userId, user.id))
+        .limit(1);
+      
+      if (!membership) {
+        return res.status(403).json({
+          success: false,
+          message: "No organization membership found.",
+        });
+      }
+      
+      // Fetch client and verify ownership
+      const [client] = await db.select()
+        .from(corporateClients)
+        .where(and(
+          eq(corporateClients.id, id),
+          eq(corporateClients.agencyOrganizationId, membership.organizationId)
+        ));
+      
+      if (!client) {
+        return res.status(404).json({
+          success: false,
+          message: "Client not found.",
+        });
+      }
+      
+      // Fetch related data in parallel
+      const [contacts, engagements, clientJobs] = await Promise.all([
+        db.select()
+          .from(corporateClientContacts)
+          .where(eq(corporateClientContacts.clientId, id))
+          .orderBy(desc(corporateClientContacts.isPrimary)),
+        
+        db.select()
+          .from(corporateClientEngagements)
+          .where(eq(corporateClientEngagements.clientId, id))
+          .orderBy(desc(corporateClientEngagements.startDate)),
+        
+        db.select()
+          .from(jobs)
+          .where(eq(jobs.clientId, id))
+          .orderBy(desc(jobs.createdAt)),
+      ]);
+      
+      res.json({
+        success: true,
+        client: {
+          ...client,
+          contacts,
+          engagements,
+          jobs: clientJobs.map(normalizeJobSkills),
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching client details:", error);
+      res.status(500).json({
+        success: false,
+        message: "Error fetching client details.",
+      });
+    }
+  });
+
+  // Update a corporate client
+  app.patch("/api/recruiter/clients/:id", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const { id } = req.params;
+      
+      // Get recruiter's organization from memberships
+      const [membership] = await db.select()
+        .from(memberships)
+        .where(eq(memberships.userId, user.id))
+        .limit(1);
+      
+      if (!membership) {
+        return res.status(403).json({
+          success: false,
+          message: "No organization membership found.",
+        });
+      }
+      
+      // Verify client ownership
+      const [existingClient] = await db.select()
+        .from(corporateClients)
+        .where(and(
+          eq(corporateClients.id, id),
+          eq(corporateClients.agencyOrganizationId, membership.organizationId)
+        ));
+      
+      if (!existingClient) {
+        return res.status(404).json({
+          success: false,
+          message: "Client not found.",
+        });
+      }
+      
+      // Update client
+      const [updatedClient] = await db.update(corporateClients)
+        .set({
+          ...req.body,
+          updatedAt: new Date(),
+        })
+        .where(eq(corporateClients.id, id))
+        .returning();
+      
+      res.json({
+        success: true,
+        message: "Client updated successfully!",
+        client: updatedClient,
+      });
+    } catch (error) {
+      console.error("Error updating client:", error);
+      res.status(500).json({
+        success: false,
+        message: "Error updating client.",
+      });
+    }
+  });
+
+  // ============================================
+  // CLIENT CONTACTS ROUTES
+  // ============================================
+
+  // Add contact to a client
+  app.post("/api/recruiter/clients/:clientId/contacts", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const { clientId } = req.params;
+      
+      // Get recruiter's organization from memberships
+      const [membership] = await db.select()
+        .from(memberships)
+        .where(eq(memberships.userId, user.id))
+        .limit(1);
+      
+      if (!membership) {
+        return res.status(403).json({ success: false, message: "No organization membership found." });
+      }
+      
+      const [client] = await db.select()
+        .from(corporateClients)
+        .where(and(
+          eq(corporateClients.id, clientId),
+          eq(corporateClients.agencyOrganizationId, membership.organizationId)
+        ));
+      
+      if (!client) {
+        return res.status(404).json({ success: false, message: "Client not found." });
+      }
+      
+      // FEATURE GATE: Check corporate clients feature (org-level)
+      const orgHolder = {
+        type: 'org' as const,
+        id: membership.organizationId
+      };
+      
+      const allowed = await checkAllowed(orgHolder, 'corporate_clients');
+      if (!allowed.ok) {
+        return res.status(403).json({
+          success: false,
+          message: "Corporate client management is not available in your current plan. Please upgrade to access this feature.",
+        });
+      }
+      
+      // Validate and create contact
+      const validatedData = insertCorporateClientContactSchema.parse(req.body);
+      const [contact] = await db.insert(corporateClientContacts).values({
+        ...validatedData,
+        clientId,
+      }).returning();
+      
+      res.status(201).json({
+        success: true,
+        message: "Contact added successfully!",
+        contact,
+      });
+    } catch (error: any) {
+      console.error("Error creating contact:", error);
+      res.status(400).json({
+        success: false,
+        message: error.errors ? "Invalid contact data." : "Error creating contact.",
+      });
+    }
+  });
+
+  // Update a contact
+  app.patch("/api/recruiter/clients/:clientId/contacts/:contactId", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const { clientId, contactId } = req.params;
+      
+      // Get recruiter's organization from memberships
+      const [membership] = await db.select()
+        .from(memberships)
+        .where(eq(memberships.userId, user.id))
+        .limit(1);
+      
+      if (!membership) {
+        return res.status(403).json({ success: false, message: "No organization membership found." });
+      }
+      
+      const [client] = await db.select()
+        .from(corporateClients)
+        .where(and(
+          eq(corporateClients.id, clientId),
+          eq(corporateClients.agencyOrganizationId, membership.organizationId)
+        ));
+      
+      if (!client) {
+        return res.status(404).json({ success: false, message: "Client not found." });
+      }
+      
+      // Update contact
+      const [updatedContact] = await db.update(corporateClientContacts)
+        .set({ ...req.body, updatedAt: new Date() })
+        .where(eq(corporateClientContacts.id, contactId))
+        .returning();
+      
+      res.json({
+        success: true,
+        message: "Contact updated successfully!",
+        contact: updatedContact,
+      });
+    } catch (error) {
+      console.error("Error updating contact:", error);
+      res.status(500).json({ success: false, message: "Error updating contact." });
+    }
+  });
+
+  // Delete a contact
+  app.delete("/api/recruiter/clients/:clientId/contacts/:contactId", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const { clientId, contactId } = req.params;
+      
+      // Get recruiter's organization from memberships
+      const [membership] = await db.select()
+        .from(memberships)
+        .where(eq(memberships.userId, user.id))
+        .limit(1);
+      
+      if (!membership) {
+        return res.status(403).json({ success: false, message: "No organization membership found." });
+      }
+      
+      const [client] = await db.select()
+        .from(corporateClients)
+        .where(and(
+          eq(corporateClients.id, clientId),
+          eq(corporateClients.agencyOrganizationId, membership.organizationId)
+        ));
+      
+      if (!client) {
+        return res.status(404).json({ success: false, message: "Client not found." });
+      }
+      
+      await db.delete(corporateClientContacts)
+        .where(eq(corporateClientContacts.id, contactId));
+      
+      res.json({
+        success: true,
+        message: "Contact removed successfully!",
+      });
+    } catch (error) {
+      console.error("Error deleting contact:", error);
+      res.status(500).json({ success: false, message: "Error deleting contact." });
+    }
+  });
+
+  // ============================================
+  // CLIENT ENGAGEMENTS ROUTES
+  // ============================================
+
+  // Add engagement/agreement to a client
+  app.post("/api/recruiter/clients/:clientId/engagements", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const { clientId } = req.params;
+      
+      // Get recruiter's organization from memberships
+      const [membership] = await db.select()
+        .from(memberships)
+        .where(eq(memberships.userId, user.id))
+        .limit(1);
+      
+      if (!membership) {
+        return res.status(403).json({ success: false, message: "No organization membership found." });
+      }
+      
+      const [client] = await db.select()
+        .from(corporateClients)
+        .where(and(
+          eq(corporateClients.id, clientId),
+          eq(corporateClients.agencyOrganizationId, membership.organizationId)
+        ));
+      
+      if (!client) {
+        return res.status(404).json({ success: false, message: "Client not found." });
+      }
+      
+      // FEATURE GATE: Check corporate clients feature (org-level)
+      const orgHolder = {
+        type: 'org' as const,
+        id: membership.organizationId
+      };
+      
+      const allowed = await checkAllowed(orgHolder, 'corporate_clients');
+      if (!allowed.ok) {
+        return res.status(403).json({
+          success: false,
+          message: "Corporate client management is not available in your current plan. Please upgrade to access this feature.",
+        });
+      }
+      
+      // Validate and create engagement
+      const validatedData = insertCorporateClientEngagementSchema.parse(req.body);
+      const [engagement] = await db.insert(corporateClientEngagements).values({
+        ...validatedData,
+        clientId,
+      }).returning();
+      
+      res.status(201).json({
+        success: true,
+        message: "Engagement created successfully!",
+        engagement,
+      });
+    } catch (error: any) {
+      console.error("Error creating engagement:", error);
+      res.status(400).json({
+        success: false,
+        message: error.errors ? "Invalid engagement data." : "Error creating engagement.",
+      });
+    }
+  });
+
+  // ============================================
+  // CLIENT JOBS & STATS ROUTES
+  // ============================================
+
+  // Get all jobs for a specific client
+  app.get("/api/recruiter/clients/:id/jobs", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const { id } = req.params;
+      
+      // Get recruiter's organization from memberships
+      const [membership] = await db.select()
+        .from(memberships)
+        .where(eq(memberships.userId, user.id))
+        .limit(1);
+      
+      if (!membership) {
+        return res.status(403).json({ success: false, message: "No organization membership found." });
+      }
+      
+      const [client] = await db.select()
+        .from(corporateClients)
+        .where(and(
+          eq(corporateClients.id, id),
+          eq(corporateClients.agencyOrganizationId, membership.organizationId)
+        ));
+      
+      if (!client) {
+        return res.status(404).json({ success: false, message: "Client not found." });
+      }
+      
+      // Fetch jobs for this client
+      const clientJobs = await db.select()
+        .from(jobs)
+        .where(eq(jobs.clientId, id))
+        .orderBy(desc(jobs.createdAt));
+      
+      res.json({
+        success: true,
+        count: clientJobs.length,
+        jobs: clientJobs.map(normalizeJobSkills),
+      });
+    } catch (error) {
+      console.error("Error fetching client jobs:", error);
+      res.status(500).json({ success: false, message: "Error fetching client jobs." });
+    }
+  });
+
+  // Get analytics/stats for a specific client
+  app.get("/api/recruiter/clients/:id/stats", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const { id } = req.params;
+      
+      // Get recruiter's organization from memberships
+      const [membership] = await db.select()
+        .from(memberships)
+        .where(eq(memberships.userId, user.id))
+        .limit(1);
+      
+      if (!membership) {
+        return res.status(403).json({ success: false, message: "No organization membership found." });
+      }
+      
+      const [client] = await db.select()
+        .from(corporateClients)
+        .where(and(
+          eq(corporateClients.id, id),
+          eq(corporateClients.agencyOrganizationId, membership.organizationId)
+        ));
+      
+      if (!client) {
+        return res.status(404).json({ success: false, message: "Client not found." });
+      }
+      
+      // Fetch all jobs for this client
+      const clientJobs = await db.select()
+        .from(jobs)
+        .where(eq(jobs.clientId, id));
+      
+      // Calculate statistics
+      const totalJobs = clientJobs.length;
+      const liveJobs = clientJobs.filter(job => (job.admin as any)?.status === 'Live').length;
+      const filledJobs = clientJobs.filter(job => (job.admin as any)?.status === 'Filled').length;
+      const closedJobs = clientJobs.filter(job => (job.admin as any)?.status === 'Closed').length;
+      const draftJobs = clientJobs.filter(job => (job.admin as any)?.status === 'Draft').length;
+      
+      // Calculate average days to fill (simplified - would need placement dates in real implementation)
+      // For now, return placeholder data
+      const avgDaysToFill = filledJobs > 0 ? 45 : null; // Placeholder
+      
+      res.json({
+        success: true,
+        stats: {
+          totalJobs,
+          liveJobs,
+          filledJobs,
+          closedJobs,
+          draftJobs,
+          avgDaysToFill,
+          placementRate: totalJobs > 0 ? ((filledJobs / totalJobs) * 100).toFixed(1) : '0',
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching client stats:", error);
+      res.status(500).json({ success: false, message: "Error fetching client stats." });
     }
   });
 
@@ -879,8 +1550,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Verify user owns this job (either posted it or owns the organization)
-      if (existingJob.postedByUserId !== user.id && existingJob.organizationId !== user.id) {
+      // Check if user is member of the organization that owns this job
+      const [membership] = await db.select()
+        .from(memberships)
+        .where(and(
+          eq(memberships.userId, user.id),
+          eq(memberships.organizationId, existingJob.organizationId)
+        ))
+        .limit(1);
+      
+      // Verify user owns this job (posted it, owns the organization, or is a member of the organization)
+      const hasPermission = 
+        existingJob.postedByUserId === user.id || 
+        existingJob.organizationId === user.id ||
+        membership !== undefined;
+      
+      if (!hasPermission) {
         return res.status(403).json({
           success: false,
           message: "You don't have permission to delete this job.",
@@ -1295,6 +1980,32 @@ Based on the job title "${jobTitle}", suggest 5-8 most relevant skills from the 
     const userId = authReq.user.id;
     const userEmail = authReq.user.email;
 
+    // FEATURE GATE: Check CV builder quota
+    const userHolder = {
+      type: 'user' as const,
+      id: userId
+    };
+    
+    // Check quota BEFORE processing (but don't consume yet)
+    const allowed = await checkAllowed(userHolder, 'cv_builder', 1);
+    if (!allowed.ok) {
+      const errorMsg = allowed.reason || '';
+      let userMessage = "You've reached your CV creation limit.";
+      
+      if (errorMsg.includes('QUOTA_EXCEEDED')) {
+        userMessage = "You've reached your monthly CV creation limit. Upgrade your plan to create more CVs.";
+      } else if (errorMsg.includes('FEATURE_NOT_IN_PLAN')) {
+        userMessage = "CV builder is not available in your current plan. Please upgrade.";
+      } else if (errorMsg.includes('FEATURE_DISABLED')) {
+        userMessage = "CV builder is not enabled in your current plan. Please upgrade.";
+      }
+      
+      return res.status(403).json({
+        success: false,
+        message: userMessage,
+      });
+    }
+
     try {
       const validatedData = insertCVSchema.parse(req.body);
       
@@ -1307,6 +2018,14 @@ Based on the job title "${jobTitle}", suggest 5-8 most relevant skills from the 
       const cv = await storage.createCV(cvData);
       
       console.log(`[CV] Created: ${cv.id} for user ${userId} (${userEmail}) with reference ${cv.referenceNumber}`);
+      
+      // Consume quota AFTER successful creation
+      try {
+        await consume(userHolder, 'cv_builder', 1);
+      } catch (error: any) {
+        console.error('Failed to consume CV builder quota after creation:', error);
+        // CV was created successfully, so we log the error but don't fail the request
+      }
       
       res.json({
         success: true,
@@ -1780,6 +2499,21 @@ Based on the job title "${jobTitle}", suggest 5-8 most relevant skills from the 
         .set({ onboardingComplete: 1 })
         .where(eq(users.id, userId));
 
+      // Send email notification for new user signup (only for new profiles)
+      if (!existing) {
+        try {
+          await sendNewUserSignupEmail({
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            role: 'individual',
+          });
+        } catch (emailError) {
+          console.error('[Email] Failed to send new user signup notification:', emailError);
+          // Don't fail the request if email fails
+        }
+      }
+
       res.json({
         success: true,
         message: existing ? "Candidate profile updated successfully" : "Candidate profile created successfully",
@@ -1894,6 +2628,36 @@ Based on the job title "${jobTitle}", suggest 5-8 most relevant skills from the 
         .values(validatedData)
         .returning();
 
+      // Check if organization already exists for this user (idempotency)
+      const [existingMembership] = await db.select()
+        .from(memberships)
+        .where(eq(memberships.userId, authReq.user!.id))
+        .limit(1);
+
+      if (!existingMembership) {
+        // Create organization for the recruiter
+        const [organization] = await db.insert(organizations)
+          .values({
+            name: validatedData.agencyName,
+            type: 'agency',
+            website: validatedData.website || undefined,
+            plan: 'free',
+            jobPostLimit: 3,
+            isVerified: 0,
+          })
+          .returning();
+
+        // Create membership linking recruiter to their organization
+        await db.insert(memberships)
+          .values({
+            userId: authReq.user!.id,
+            organizationId: organization.id,
+            role: 'owner',
+          });
+
+        console.log(`Created organization ${organization.id} for recruiter ${authReq.user!.id}`);
+      }
+
       // Mark onboarding as complete for Recruiter role
       await db.update(users)
         .set({ onboardingComplete: 1 })
@@ -1901,6 +2665,33 @@ Based on the job title "${jobTitle}", suggest 5-8 most relevant skills from the 
 
       // Queue fraud detection for recruiter profile
       await queueFraudDetection('recruiter_profile', profile.id, profile, profile.userId);
+
+      // Send email notifications for new recruiter signup
+      // Note: This only executes for NEW profiles due to early return above if existing profile found
+      try {
+        // 1. Notify admin of new user signup
+        await sendNewUserSignupEmail({
+          email: authReq.user!.email,
+          firstName: authReq.user!.firstName,
+          lastName: authReq.user!.lastName,
+          role: 'recruiter',
+        });
+
+        // 2. Notify admin that recruiter profile needs approval
+        await sendRecruiterProfileApprovalEmail({
+          email: authReq.user!.email,
+          agencyName: profile.agencyName,
+          firstName: authReq.user!.firstName,
+          lastName: authReq.user!.lastName,
+          website: profile.website,
+          telephone: profile.telephone,
+          sectors: profile.sectors || [],
+          proofUrl: profile.proofUrl,
+        });
+      } catch (emailError) {
+        console.error('[Email] Failed to send recruiter notification emails:', emailError);
+        // Don't fail the request if email fails
+      }
 
       res.json({
         success: true,
@@ -1957,6 +2748,73 @@ Based on the job title "${jobTitle}", suggest 5-8 most relevant skills from the 
       res.status(400).json({
         success: false,
         message: "Failed to update recruiter profile",
+      });
+    }
+  });
+
+  // Helper endpoint: Create organization for existing recruiter if missing
+  app.post("/api/profile/recruiter/setup-organization", authenticateSession, async (req, res) => {
+    try {
+      const authReq = req as AuthRequest;
+      
+      // Get recruiter profile
+      const [profile] = await db.select()
+        .from(recruiterProfiles)
+        .where(eq(recruiterProfiles.userId, authReq.user!.id));
+
+      if (!profile) {
+        return res.status(404).json({
+          success: false,
+          message: "Recruiter profile not found",
+        });
+      }
+
+      // Check if membership already exists
+      const [existingMembership] = await db.select()
+        .from(memberships)
+        .where(eq(memberships.userId, authReq.user!.id))
+        .limit(1);
+
+      if (existingMembership) {
+        return res.json({
+          success: true,
+          message: "Organization already exists",
+          organizationId: existingMembership.organizationId,
+        });
+      }
+
+      // Create organization for the recruiter
+      const [organization] = await db.insert(organizations)
+        .values({
+          name: profile.agencyName,
+          type: 'agency',
+          website: profile.website || undefined,
+          plan: 'free',
+          jobPostLimit: 3,
+          isVerified: 0,
+        })
+        .returning();
+
+      // Create membership linking recruiter to their organization
+      await db.insert(memberships)
+        .values({
+          userId: authReq.user!.id,
+          organizationId: organization.id,
+          role: 'owner',
+        });
+
+      console.log(`Created organization ${organization.id} for existing recruiter ${authReq.user!.id}`);
+
+      res.json({
+        success: true,
+        message: "Organization created successfully",
+        organizationId: organization.id,
+      });
+    } catch (error: any) {
+      console.error("Setup organization error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to create organization",
       });
     }
   });
@@ -2150,6 +3008,53 @@ Based on the job title "${jobTitle}", suggest 5-8 most relevant skills from the 
         });
       }
 
+      // Get recruiter profile to determine organization for billing
+      const [recruiterProfile] = await db.select()
+        .from(recruiterProfiles)
+        .where(eq(recruiterProfiles.userId, userId));
+      
+      if (!recruiterProfile) {
+        return res.status(403).json({
+          success: false,
+          message: "Recruiter profile not found.",
+        });
+      }
+
+      // FEATURE GATE: Check AI screening quota
+      // Get organization membership to determine correct org ID for billing
+      const [membership] = await db.select()
+        .from(memberships)
+        .where(eq(memberships.userId, userId))
+        .limit(1);
+      
+      // Use organization ID if user is a member, otherwise use userId as org ID (individual recruiter)
+      const orgHolder = {
+        type: 'org' as const,
+        id: membership?.organizationId || recruiterProfile.userId
+      };
+      
+      const cvCount = cvTexts.length;
+      
+      // Check quota BEFORE processing (but don't consume yet)
+      const allowed = await checkAllowed(orgHolder, 'ai_screenings', cvCount);
+      if (!allowed.ok) {
+        const errorMsg = allowed.reason || '';
+        let userMessage = "You've reached your AI screening limit.";
+        
+        if (errorMsg.includes('QUOTA_EXCEEDED')) {
+          userMessage = `You've reached your monthly AI screening limit. You're trying to screen ${cvCount} CVs. Upgrade your plan to screen more candidates.`;
+        } else if (errorMsg.includes('FEATURE_NOT_IN_PLAN')) {
+          userMessage = "AI screening is not available in your current plan. Please upgrade.";
+        } else if (errorMsg.includes('FEATURE_DISABLED')) {
+          userMessage = "AI screening is not enabled in your current plan. Please upgrade.";
+        }
+        
+        return res.status(403).json({
+          success: false,
+          message: userMessage,
+        });
+      }
+
       // Update job status to processing
       await db.update(screeningJobs)
         .set({ status: 'processing' })
@@ -2239,6 +3144,16 @@ Based on the job title "${jobTitle}", suggest 5-8 most relevant skills from the 
       await db.update(screeningJobs)
         .set({ status: 'completed' })
         .where(eq(screeningJobs.id, jobId));
+
+      // Consume quota AFTER successful processing (only for successfully processed CVs)
+      if (processedCandidates.length > 0) {
+        try {
+          await consume(orgHolder, 'ai_screenings', processedCandidates.length);
+        } catch (error: any) {
+          console.error('Failed to consume AI screening quota after processing:', error);
+          // CVs were processed successfully, so we log the error but don't fail the request
+        }
+      }
 
       res.json({
         success: true,
@@ -2330,6 +3245,25 @@ Based on the job title "${jobTitle}", suggest 5-8 most relevant skills from the 
       const user = req.user as any;
       const userId = user.id;
 
+      // FEATURE GATE: Check ATS access (org-level for recruiters)
+      const [membership] = await db.select()
+        .from(memberships)
+        .where(eq(memberships.userId, userId))
+        .limit(1);
+      
+      const orgHolder = {
+        type: 'org' as const,
+        id: membership?.organizationId || userId
+      };
+      
+      const allowed = await checkAllowed(orgHolder, 'ats_access');
+      if (!allowed.ok) {
+        return res.status(403).json({
+          success: false,
+          message: "ATS access is not available in your current plan. Please upgrade to access this feature.",
+        });
+      }
+
       const validatedData = insertCandidateSchema.parse(req.body);
       const [candidate] = await db.insert(candidates)
         .values(validatedData)
@@ -2363,6 +3297,25 @@ Based on the job title "${jobTitle}", suggest 5-8 most relevant skills from the 
     try {
       const user = req.user as any;
       const userId = user.id;
+
+      // FEATURE GATE: Check ATS access (org-level for recruiters)
+      const [membership] = await db.select()
+        .from(memberships)
+        .where(eq(memberships.userId, userId))
+        .limit(1);
+      
+      const orgHolder = {
+        type: 'org' as const,
+        id: membership?.organizationId || userId
+      };
+      
+      const allowed = await checkAllowed(orgHolder, 'ats_access');
+      if (!allowed.ok) {
+        return res.status(403).json({
+          success: false,
+          message: "ATS access is not available in your current plan. Please upgrade to access this feature.",
+        });
+      }
 
       const searchQuery = req.query.search as string || '';
       const city = req.query.city as string || '';
@@ -3132,49 +4085,90 @@ Based on the job title "${jobTitle}", suggest 5-8 most relevant skills from the 
 
 Your task: Analyze the provided job posting text and extract all relevant information into a structured JSON format that matches the Sebenza Hub job posting schema.
 
-Guidelines:
-- Extract as much information as possible from the text
+CRITICAL INSTRUCTIONS:
+- Extract ALL fields from the document, including metadata fields
 - Use South African context (currency = ZAR, country = South Africa)
-- For salary ranges, extract both minimum and maximum values
-- For location, extract city and province if mentioned
+- For boolean fields marked "Yes", set to true; "No" set to false; if unmarked/empty, set to false
+- For salary fields, extract numeric values only (remove currency symbols)
+- For dates in format DD-MM-YYYY, keep as string
 - For employment type, use one of: "Permanent", "Contract", "Temporary", "Internship", "Freelance"
 - For seniority, use one of: "Entry Level", "Junior", "Mid-Level", "Senior", "Lead", "Manager", "Director", "Executive"
-- Extract responsibilities, qualifications, and benefits as arrays of strings
-- If information is not present, use null or empty arrays
+- For work arrangement, use: "Remote", "Hybrid", or "On-site"
+- For application method, extract the full method (e.g., "Easy Apply via WhatsApp", "External Website", "Email")
+- For Right to Work, extract exact value: "Citizen/PR", "Work Permit", "Any" or null
+- Extract all responsibilities, qualifications, skills, and experience as arrays
 - Return ONLY valid JSON, no markdown or explanations
 
 Return format:
 {
+  "clientId": "string or null (Corporate Client name if mentioned)",
   "title": "string",
-  "company": "string",
-  "location": "string (city, province)",
+  "company": "string (Company Name)",
+  "location": "string (City/Town)",
+  "province": "string or null (Gauteng, Western Cape, etc.)",
+  "postalCode": "string or null",
   "employmentType": "string",
-  "industry": "string or null",
-  "salaryMin": number or null,
-  "salaryMax": number or null,
-  "description": "string",
+  "industry": "string or null (Company/Job Industry)",
+  "description": "string (Job Summary)",
+  "companyDetails": {
+    "name": "string",
+    "industry": "string or null",
+    "size": number or null,
+    "website": "string or null (full URL)",
+    "description": "string or null (Company Description)",
+    "recruitingAgency": "string or null (Recruiting Agency name)"
+  },
   "core": {
     "seniority": "string or null",
     "department": "string or null",
-    "workArrangement": "string (Remote / Hybrid / On-site)",
-    "summary": "string",
-    "responsibilities": ["string"],
-    "requiredSkills": ["string"],
-    "preferredSkills": ["string"]
+    "workArrangement": "string (Remote/Hybrid/On-site)",
+    "summary": "string (Job Summary)",
+    "responsibilities": ["array of Key Responsibilities"],
+    "requiredSkills": ["array of Required Skills - skill names only"],
+    "preferredSkills": ["array of any preferred/nice-to-have skills"]
   },
   "compensation": {
-    "payType": "string (Annual / Monthly / Weekly / Hourly)",
+    "payType": "string (Annual/Monthly/Weekly/Hourly)",
     "currency": "ZAR",
-    "min": number or null,
-    "max": number or null,
-    "displayRange": true
+    "min": number or null (Basic Salary - Minimum),
+    "max": number or null (Basic Salary - Maximum),
+    "displayRange": true,
+    "commissionAvailable": boolean (true if Yes),
+    "performanceBonus": boolean (true if Yes),
+    "medicalAid": boolean (true if Yes),
+    "pensionFund": boolean (true if Yes)
   },
   "roleDetails": {
-    "qualifications": ["string"],
-    "experience": "string or null"
+    "qualifications": ["array of ALL Qualifications - each bullet point as separate item"],
+    "experience": ["array of ALL Experience Requirements - each bullet point as separate item"],
+    "driversLicenseRequired": boolean (true if Yes),
+    "languagesRequired": ["array of languages, e.g., English"]
+  },
+  "application": {
+    "method": "string (e.g., Easy Apply via WhatsApp, External Website, Email)",
+    "externalUrl": "string or null",
+    "contactEmail": "string or null",
+    "whatsappNumber": "string or null (Contact/WhatsApp Number)",
+    "closingDate": "string or null (format: DD-MM-YYYY or YYYY-MM-DD)"
+  },
+  "screening": {
+    "competencyTestRequired": boolean (Pre-Screening Competency Test Required),
+    "rightToWorkRequired": "string or null (Citizen/PR, Work Permit, Any)",
+    "backgroundChecks": {
+      "criminal": boolean,
+      "credit": boolean,
+      "qualification": boolean,
+      "references": boolean
+    }
+  },
+  "admin": {
+    "visibility": "string or null (Public/Private/Unlisted)",
+    "status": "string (Draft/Live/Paused/Closed)",
+    "owner": "string or null (Job Owner name)",
+    "popiaCompliance": boolean (POPIA Compliance Confirmation - true if Yes)
   },
   "benefits": {
-    "benefits": ["string"]
+    "benefits": ["array of all benefits mentioned"]
   }
 }`;
 
@@ -3187,8 +4181,8 @@ Return format:
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.3,
-        max_tokens: 2000,
+        temperature: 0.2,
+        max_tokens: 4000,
         response_format: { type: "json_object" },
       });
 
@@ -3200,6 +4194,9 @@ Return format:
 
       // Parse the extracted job data
       const jobData = JSON.parse(responseContent);
+      
+      // Log the extracted data for debugging
+      console.log('[AI Extraction] Successfully extracted job data:', JSON.stringify(jobData, null, 2));
 
       res.json({
         success: true,
@@ -3400,6 +4397,181 @@ Return format:
     }
   });
 
+  // ============================================================================
+  // SEO Generation - AI-powered SEO metadata
+  // ============================================================================
+
+  // Generate SEO metadata for a job posting
+  app.post("/api/jobs/:jobId/seo/generate", authenticateSession, async (req, res) => {
+    try {
+      const { jobId } = req.params;
+      const authReq = req as AuthRequest;
+      
+      if (!jobId) {
+        return res.status(400).json({
+          success: false,
+          message: "Job ID is required",
+        });
+      }
+
+      // Fetch the job
+      const [job] = await db
+        .select()
+        .from(jobs)
+        .where(eq(jobs.id, jobId))
+        .limit(1);
+
+      if (!job) {
+        return res.status(404).json({
+          success: false,
+          message: "Job not found",
+        });
+      }
+
+      // Authorization: verify user is a recruiter and owns this job
+      console.log("[SEO Generate] Auth check - User role:", authReq.user.role, "User orgId:", authReq.user.organizationId, "Job orgId:", job.organizationId);
+      
+      if (authReq.user.role !== "recruiter") {
+        console.log("[SEO Generate] Authorization failed: User is not a recruiter");
+        return res.status(403).json({
+          success: false,
+          message: "Only recruiters can manage SEO for jobs",
+        });
+      }
+
+      // Check job ownership: job must belong to user's organization
+      if (job.organizationId && authReq.user.organizationId && job.organizationId !== authReq.user.organizationId) {
+        console.log("[SEO Generate] Authorization failed: Organization mismatch");
+        return res.status(403).json({
+          success: false,
+          message: "You can only manage SEO for jobs in your organization",
+        });
+      }
+
+      // Check if AI is configured
+      if (!isAIConfigured()) {
+        return res.status(503).json({
+          success: false,
+          message: "AI service is not configured.",
+        });
+      }
+
+      // Generate SEO metadata
+      const { generateJobSEO } = await import("./services/seo-generator");
+      const seoData = await generateJobSEO(job);
+
+      // Update job with new SEO data
+      await db
+        .update(jobs)
+        .set({ 
+          seo: seoData,
+          updatedAt: new Date()
+        })
+        .where(eq(jobs.id, jobId));
+
+      res.json({
+        success: true,
+        seo: seoData,
+      });
+    } catch (error: any) {
+      console.error("[SEO Generate] Error:", error);
+      res.status(500).json({
+        success: false,
+        message: error.message || "Failed to generate SEO metadata",
+      });
+    }
+  });
+
+  // Save manually edited SEO metadata
+  app.post("/api/jobs/:jobId/seo/save", authenticateSession, async (req, res) => {
+    try {
+      const { jobId } = req.params;
+      const { seo } = req.body;
+      const authReq = req as AuthRequest;
+
+      if (!jobId) {
+        return res.status(400).json({
+          success: false,
+          message: "Job ID is required",
+        });
+      }
+
+      if (!seo) {
+        return res.status(400).json({
+          success: false,
+          message: "SEO data is required",
+        });
+      }
+
+      // Fetch the job to verify it exists
+      const [job] = await db
+        .select()
+        .from(jobs)
+        .where(eq(jobs.id, jobId))
+        .limit(1);
+
+      if (!job) {
+        return res.status(404).json({
+          success: false,
+          message: "Job not found",
+        });
+      }
+
+      // Authorization: verify user is a recruiter and owns this job
+      console.log("[SEO Save] Auth check - User role:", authReq.user.role, "User orgId:", authReq.user.organizationId, "Job orgId:", job.organizationId);
+      
+      if (authReq.user.role !== "recruiter") {
+        console.log("[SEO Save] Authorization failed: User is not a recruiter");
+        return res.status(403).json({
+          success: false,
+          message: "Only recruiters can manage SEO for jobs",
+        });
+      }
+
+      // Check job ownership: job must belong to user's organization
+      if (job.organizationId && authReq.user.organizationId && job.organizationId !== authReq.user.organizationId) {
+        console.log("[SEO Save] Authorization failed: Organization mismatch");
+        return res.status(403).json({
+          success: false,
+          message: "You can only manage SEO for jobs in your organization",
+        });
+      }
+
+      // Clean and validate the SEO data
+      const { cleanAndValidateSEO, toKebabCase, ensureUniqueSlug, generateJsonLd } = await import("./services/seo-generator");
+      const cleaned = cleanAndValidateSEO(seo);
+
+      // Ensure slug uniqueness if provided/edited
+      if (cleaned.slug) {
+        cleaned.slug = toKebabCase(cleaned.slug);
+        cleaned.slug = await ensureUniqueSlug(cleaned.slug, jobId);
+      }
+
+      // Regenerate JSON-LD with latest job data
+      cleaned.jsonld = generateJsonLd(job);
+
+      // Update job with cleaned SEO data
+      await db
+        .update(jobs)
+        .set({ 
+          seo: cleaned,
+          updatedAt: new Date()
+        })
+        .where(eq(jobs.id, jobId));
+
+      res.json({
+        success: true,
+        seo: cleaned,
+      });
+    } catch (error: any) {
+      console.error("[SEO Save] Error:", error);
+      res.status(500).json({
+        success: false,
+        message: error.message || "Failed to save SEO metadata",
+      });
+    }
+  });
+
   // Generate AI company description with tone selection
   app.post("/api/jobs/generate-company-description", authenticateSession, async (req, res) => {
     try {
@@ -3502,6 +4674,25 @@ Write a compelling 5-10 line company description in a ${selectedTone} tone.`;
     const userId = authReq.user!.id;
 
     try {
+      // FEATURE GATE: Check ATS access (org-level for recruiters)
+      const [membership] = await db.select()
+        .from(memberships)
+        .where(eq(memberships.userId, userId))
+        .limit(1);
+      
+      const orgHolder = {
+        type: 'org' as const,
+        id: membership?.organizationId || userId
+      };
+      
+      const allowed = await checkAllowed(orgHolder, 'ats_access');
+      if (!allowed.ok) {
+        return res.status(403).json({
+          success: false,
+          message: "ATS access is not available in your current plan. Please upgrade to access this feature.",
+        });
+      }
+
       // Check if AI is configured
       if (!isAIConfiguredForCV()) {
         return res.status(503).json({
@@ -5440,6 +6631,25 @@ Write a compelling 5-10 line company description in a ${selectedTone} tone.`;
         return res.status(401).json({ success: false, message: "Not authenticated" });
       }
 
+      // FEATURE GATE: Check competency tests feature (org-level for recruiters)
+      const [membership] = await db.select()
+        .from(memberships)
+        .where(eq(memberships.userId, userId))
+        .limit(1);
+      
+      const orgHolder = {
+        type: 'org' as const,
+        id: membership?.organizationId || userId
+      };
+      
+      const allowed = await checkAllowed(orgHolder, 'competency_tests');
+      if (!allowed.ok) {
+        return res.status(403).json({
+          success: false,
+          message: "Competency testing is not available in your current plan. Please upgrade to access this feature.",
+        });
+      }
+
       const input = req.body as GenerateTestInput;
 
       if (!input.jobTitle) {
@@ -5502,6 +6712,20 @@ Write a compelling 5-10 line company description in a ${selectedTone} tone.`;
       const organizationId = membership.length > 0 
         ? membership[0].organizationId 
         : `user-org-${userId}`; // Fallback for individual recruiters
+      
+      // FEATURE GATE: Check competency tests feature (org-level)
+      const orgHolder = {
+        type: 'org' as const,
+        id: membership.length > 0 ? membership[0].organizationId : userId
+      };
+      
+      const allowed = await checkAllowed(orgHolder, 'competency_tests');
+      if (!allowed.ok) {
+        return res.status(403).json({
+          success: false,
+          message: "Competency testing is not available in your current plan. Please upgrade to access this feature.",
+        });
+      }
 
       // Parse and validate input
       const {
@@ -5881,6 +7105,20 @@ Write a compelling 5-10 line company description in a ${selectedTone} tone.`;
       const userId = req.user?.id;
       if (!userId) {
         return res.status(401).json({ success: false, message: "Not authenticated" });
+      }
+
+      // FEATURE GATE: Check competency tests feature (user-level for individuals)
+      const userHolder = {
+        type: 'user' as const,
+        id: userId
+      };
+      
+      const allowed = await checkAllowed(userHolder, 'competency_tests');
+      if (!allowed.ok) {
+        return res.status(403).json({
+          success: false,
+          message: "Competency testing is not available in your current plan. Please upgrade to access this feature.",
+        });
       }
 
       const { testId, deviceMeta } = req.body;
@@ -6675,6 +7913,26 @@ Write a compelling 5-10 line company description in a ${selectedTone} tone.`;
   app.get("/api/calendar/google/connect", authenticateSession, async (req, res) => {
     try {
       const userId = (req as any).user.id;
+      
+      // FEATURE GATE: Check interview scheduling feature (org-level for recruiters)
+      const [membership] = await db.select()
+        .from(memberships)
+        .where(eq(memberships.userId, userId))
+        .limit(1);
+      
+      const orgHolder = {
+        type: 'org' as const,
+        id: membership?.organizationId || userId
+      };
+      
+      const allowed = await checkAllowed(orgHolder, 'interview_scheduling');
+      if (!allowed.ok) {
+        return res.status(403).json({
+          success: false,
+          message: "Interview scheduling is not available in your current plan. Please upgrade to access this feature.",
+        });
+      }
+      
       const baseUrl = `https://${req.get('host')}`;
       
       const { getAuthorizationUrl } = await import('./calendar/google-oauth');
@@ -6734,6 +7992,26 @@ Write a compelling 5-10 line company description in a ${selectedTone} tone.`;
   app.get("/api/calendar/microsoft/connect", authenticateSession, async (req, res) => {
     try {
       const userId = (req as any).user.id;
+      
+      // FEATURE GATE: Check interview scheduling feature (org-level for recruiters)
+      const [membership] = await db.select()
+        .from(memberships)
+        .where(eq(memberships.userId, userId))
+        .limit(1);
+      
+      const orgHolder = {
+        type: 'org' as const,
+        id: membership?.organizationId || userId
+      };
+      
+      const allowed = await checkAllowed(orgHolder, 'interview_scheduling');
+      if (!allowed.ok) {
+        return res.status(403).json({
+          success: false,
+          message: "Interview scheduling is not available in your current plan. Please upgrade to access this feature.",
+        });
+      }
+      
       const baseUrl = `https://${req.get('host')}`;
       
       const { getMicrosoftAuthUrl } = await import('./calendar/microsoft-oauth');
@@ -6792,6 +8070,26 @@ Write a compelling 5-10 line company description in a ${selectedTone} tone.`;
   app.get("/api/calendar/zoom/connect", authenticateSession, async (req, res) => {
     try {
       const userId = (req as any).user.id;
+      
+      // FEATURE GATE: Check interview scheduling feature (org-level for recruiters)
+      const [membership] = await db.select()
+        .from(memberships)
+        .where(eq(memberships.userId, userId))
+        .limit(1);
+      
+      const orgHolder = {
+        type: 'org' as const,
+        id: membership?.organizationId || userId
+      };
+      
+      const allowed = await checkAllowed(orgHolder, 'interview_scheduling');
+      if (!allowed.ok) {
+        return res.status(403).json({
+          success: false,
+          message: "Interview scheduling is not available in your current plan. Please upgrade to access this feature.",
+        });
+      }
+      
       const baseUrl = `https://${req.get('host')}`;
       
       const { getZoomAuthUrl } = await import('./calendar/zoom-oauth');
@@ -6931,6 +8229,20 @@ Write a compelling 5-10 line company description in a ${selectedTone} tone.`;
         endTime,
         timezone,
       } = req.body;
+      
+      // FEATURE GATE: Check interview scheduling feature (org-level)
+      const orgHolder = {
+        type: 'org' as const,
+        id: organizationId
+      };
+      
+      const allowed = await checkAllowed(orgHolder, 'interview_scheduling');
+      if (!allowed.ok) {
+        return res.status(403).json({
+          success: false,
+          message: "Interview scheduling is not available in your current plan. Please upgrade to access this feature.",
+        });
+      }
       
       const { bookInterview } = await import('./calendar/booking-service');
       
@@ -7077,7 +8389,7 @@ Write a compelling 5-10 line company description in a ${selectedTone} tone.`;
   // Cancel interview
   app.delete("/api/interviews/:id", authenticateSession, async (req, res) => {
     try {
-      const { id } = req.params;
+      const { id} = req.params;
       
       const { cancelInterview } = await import('./calendar/booking-service');
       await cancelInterview(id, dbStorage);
@@ -7088,6 +8400,1051 @@ Write a compelling 5-10 line company description in a ${selectedTone} tone.`;
       res.status(500).json({
         success: false,
         message: error.message || "Failed to cancel interview",
+      });
+    }
+  });
+
+  // ============================================================================
+  // BILLING SYSTEM ROUTES
+  // ============================================================================
+
+  // Public: Get all plans catalog (for pricing page)
+  app.get("/api/public/plans", async (req, res) => {
+    try {
+      // First, get all public plans
+      const publicPlans = await db.select()
+        .from(plans)
+        .where(eq(plans.isPublic, 1))
+        .orderBy(plans.product, plans.tier, plans.interval);
+
+      // Then, get all entitlements for these plans
+      const planIds = publicPlans.map(p => p.id);
+      const allEntitlements = await db.select({
+        planId: featureEntitlements.planId,
+        featureKey: featureEntitlements.featureKey,
+        enabled: featureEntitlements.enabled,
+        monthlyCap: featureEntitlements.monthlyCap,
+        featureName: features.name,
+        featureDescription: features.description,
+        featureKind: features.kind,
+        unit: features.unit,
+      })
+        .from(featureEntitlements)
+        .innerJoin(features, eq(featureEntitlements.featureKey, features.key))
+        .where(inArray(featureEntitlements.planId, planIds));
+
+      // Group entitlements by planId
+      const entitlementsByPlan: Record<string, any[]> = {};
+      for (const ent of allEntitlements) {
+        if (!entitlementsByPlan[ent.planId]) {
+          entitlementsByPlan[ent.planId] = [];
+        }
+        entitlementsByPlan[ent.planId].push({
+          featureKey: ent.featureKey,
+          enabled: ent.enabled,
+          monthlyCap: ent.monthlyCap,
+          featureName: ent.featureName,
+          featureDescription: ent.featureDescription,
+          featureKind: ent.featureKind,
+          unit: ent.unit,
+        });
+      }
+
+      // Transform to include priceMonthly, name, description, and entitlements
+      const allPlans = publicPlans.map((plan) => {
+        // Generate name from product and tier
+        const productName = plan.product.charAt(0).toUpperCase() + plan.product.slice(1);
+        const tierName = plan.tier.charAt(0).toUpperCase() + plan.tier.slice(1);
+        const name = `${productName} - ${tierName}`;
+        
+        // Generate description based on product
+        const descriptions: Record<string, string> = {
+          individual: 'For job seekers building their careers',
+          recruiter: 'For recruiting agencies and talent teams',
+          corporate: 'For businesses hiring direct',
+        };
+        
+        return {
+          plan: {
+            ...plan,
+            name,
+            description: descriptions[plan.product] || '',
+            priceMonthly: (plan.priceCents / 100).toFixed(2), // Convert cents to rands
+          },
+          entitlements: entitlementsByPlan[plan.id] || [],
+        };
+      });
+
+      res.json({
+        success: true,
+        plans: allPlans,
+      });
+    } catch (error: any) {
+      console.error("[Billing] Error fetching plans:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch plans",
+      });
+    }
+  });
+
+  // Get current user's subscription
+  app.get("/api/me/subscription", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      
+      // Determine holder type and ID based on user role
+      let holderType: 'user' | 'org' = 'user';
+      let holderId = user.id;
+      
+      if (user.role === 'recruiter' || user.role === 'business') {
+        // Check if user has organization membership
+        const [membership] = await db.select()
+          .from(memberships)
+          .where(eq(memberships.userId, user.id))
+          .limit(1);
+        
+        if (membership) {
+          holderType = 'org';
+          holderId = membership.organizationId;
+        }
+      }
+      
+      // Get active subscription
+      const now = new Date();
+      const [result] = await db.select({
+        subscription: subscriptions,
+        plan: plans,
+      })
+        .from(subscriptions)
+        .innerJoin(plans, eq(subscriptions.planId, plans.id))
+        .where(and(
+          eq(subscriptions.holderType, holderType),
+          eq(subscriptions.holderId, holderId),
+          eq(subscriptions.status, 'active'),
+          gte(subscriptions.currentPeriodEnd, now)
+        ))
+        .orderBy(desc(subscriptions.createdAt))
+        .limit(1);
+      
+      if (!result) {
+        return res.json({
+          success: true,
+          subscription: null,
+          plan: null,
+        });
+      }
+      
+      res.json({
+        success: true,
+        subscription: result.subscription,
+        plan: result.plan,
+      });
+    } catch (error: any) {
+      console.error("[Billing] Error fetching subscription:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch subscription",
+      });
+    }
+  });
+
+  // Get current user's entitlements and usage
+  app.get("/api/me/entitlements", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const { getEntitlements } = await import('./services/entitlements');
+      
+      // Determine holder type and ID
+      let holderType: 'user' | 'org' = 'user';
+      let holderId = user.id;
+      
+      if (user.role === 'recruiter' || user.role === 'business') {
+        const [membership] = await db.select()
+          .from(memberships)
+          .where(eq(memberships.userId, user.id))
+          .limit(1);
+        
+        if (membership) {
+          holderType = 'org';
+          holderId = membership.organizationId;
+        }
+      }
+      
+      const entitlements = await getEntitlements({ type: holderType, id: holderId });
+      
+      res.json({
+        success: true,
+        entitlements,
+      });
+    } catch (error: any) {
+      console.error("[Billing] Error fetching entitlements:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch entitlements",
+      });
+    }
+  });
+
+  // Create checkout session (Netcash integration - stub for now)
+  app.post("/api/billing/checkout", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const { planId, interval } = req.body;
+      
+      // Validate plan exists
+      const [plan] = await db.select()
+        .from(plans)
+        .where(and(
+          eq(plans.id, planId),
+          eq(plans.isPublic, 1)
+        ))
+        .limit(1);
+      
+      if (!plan) {
+        return res.status(404).json({
+          success: false,
+          message: "Plan not found",
+        });
+      }
+      
+      // TODO: Create Netcash checkout session
+      // For now, return stub response
+      res.json({
+        success: true,
+        message: "Checkout session creation - Netcash integration coming soon",
+        plan,
+        // checkoutUrl: netcashCheckoutUrl,
+      });
+    } catch (error: any) {
+      console.error("[Billing] Error creating checkout:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to create checkout session",
+      });
+    }
+  });
+
+  // Handle Netcash webhooks (stub for now)
+  app.post("/api/billing/webhook", async (req, res) => {
+    try {
+      // TODO: Verify Netcash signature
+      const event = req.body;
+      
+      // Store event
+      await db.insert(paymentEvents).values({
+        gateway: 'netcash',
+        eventId: event.id || `evt_${Date.now()}`,
+        eventType: event.type || 'unknown',
+        payload: event,
+        processed: 0,
+      });
+      
+      // TODO: Process event based on type
+      // - subscription.activated -> activate subscription
+      // - payment.failed -> mark past_due
+      // - subscription.canceled -> cancel subscription
+      
+      res.json({ received: true });
+    } catch (error: any) {
+      console.error("[Billing] Error processing webhook:", error);
+      res.status(500).json({ error: "Webhook processing failed" });
+    }
+  });
+
+  // Get billing portal link (stub for now)
+  app.get("/api/billing/portal", authenticateSession, async (req, res) => {
+    try {
+      // TODO: Generate Netcash customer portal URL
+      res.json({
+        success: true,
+        message: "Billing portal - Netcash integration coming soon",
+        // portalUrl: netcashPortalUrl,
+      });
+    } catch (error: any) {
+      console.error("[Billing] Error generating portal link:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to generate portal link",
+      });
+    }
+  });
+
+  // Admin: Get all subscriptions
+  app.get("/api/admin/billing/subscriptions", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'administrator') {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized",
+        });
+      }
+      
+      const allSubscriptions = await db.select({
+        subscription: subscriptions,
+        plan: plans,
+        organization: organizations,
+        user: users,
+      })
+        .from(subscriptions)
+        .innerJoin(plans, eq(subscriptions.planId, plans.id))
+        .leftJoin(organizations, eq(subscriptions.holderId, organizations.id))
+        .leftJoin(users, eq(subscriptions.holderId, users.id))
+        .orderBy(desc(subscriptions.createdAt))
+        .limit(100);
+      
+      // Format the response to include holder information
+      const formattedSubscriptions = allSubscriptions.map(item => ({
+        subscription: item.subscription,
+        plan: item.plan,
+        holder: item.subscription.holderType === 'org' 
+          ? item.organization 
+          : item.user,
+      }));
+      
+      res.json({
+        success: true,
+        subscriptions: formattedSubscriptions,
+      });
+    } catch (error: any) {
+      console.error("[Billing] Error fetching subscriptions:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch subscriptions",
+      });
+    }
+  });
+
+  // Admin: Get payment events log
+  app.get("/api/admin/billing/events", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'administrator') {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized",
+        });
+      }
+      
+      const events = await db.select()
+        .from(paymentEvents)
+        .orderBy(desc(paymentEvents.receivedAt))
+        .limit(100);
+      
+      res.json({
+        success: true,
+        events,
+      });
+    } catch (error: any) {
+      console.error("[Billing] Error fetching payment events:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch payment events",
+      });
+    }
+  });
+
+  // Admin: Grant extra allowance (credits)
+  app.post("/api/admin/billing/grant-credits", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'administrator') {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized",
+        });
+      }
+      
+      const { holderType, holderId, featureKey, amount } = req.body;
+      const { grantExtraAllowance } = await import('./services/entitlements');
+      
+      await grantExtraAllowance(
+        { type: holderType, id: holderId },
+        featureKey,
+        amount
+      );
+      
+      res.json({
+        success: true,
+        message: `Granted ${amount} ${featureKey} credits`,
+      });
+    } catch (error: any) {
+      console.error("[Billing] Error granting credits:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to grant credits",
+      });
+    }
+  });
+
+  // Admin: Manually trigger billing period reset (for testing/maintenance)
+  app.post("/api/admin/billing/reset-usage", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'administrator') {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized",
+        });
+      }
+      
+      const { triggerManualReset } = await import('./services/billing-cron');
+      const result = await triggerManualReset();
+      
+      res.json({
+        success: true,
+        message: "Billing reset triggered successfully",
+        result,
+      });
+    } catch (error: any) {
+      console.error("[Billing] Error triggering reset:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to trigger billing reset",
+      });
+    }
+  });
+
+  // Admin: Get detailed subscription info with usage
+  app.get("/api/admin/subscriptions/:id/details", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'administrator') {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized",
+        });
+      }
+      
+      const subscriptionId = req.params.id;
+      
+      // Get subscription with plan details
+      const [subData] = await db.select({
+        subscription: subscriptions,
+        plan: plans,
+      })
+        .from(subscriptions)
+        .innerJoin(plans, eq(subscriptions.planId, plans.id))
+        .where(eq(subscriptions.id, subscriptionId));
+      
+      if (!subData) {
+        return res.status(404).json({
+          success: false,
+          message: "Subscription not found",
+        });
+      }
+      
+      // Get holder information (user or organization)
+      let holderInfo: any = null;
+      if (subData.subscription.holderType === 'user') {
+        const [userInfo] = await db.select({
+          id: users.id,
+          email: users.email,
+          firstName: users.firstName,
+          lastName: users.lastName,
+          role: users.role,
+        })
+          .from(users)
+          .where(eq(users.id, subData.subscription.holderId));
+        holderInfo = userInfo;
+      } else if (subData.subscription.holderType === 'org') {
+        const [orgInfo] = await db.select()
+          .from(organizations)
+          .where(eq(organizations.id, subData.subscription.holderId));
+        holderInfo = orgInfo;
+      }
+      
+      // Get current usage
+      const { getEntitlements } = await import('./services/entitlements');
+      const entitlements = await getEntitlements({
+        type: subData.subscription.holderType,
+        id: subData.subscription.holderId,
+      });
+      
+      // Get all features to show complete usage
+      const allFeatures = await db.select().from(features);
+      
+      res.json({
+        success: true,
+        subscription: subData.subscription,
+        plan: subData.plan,
+        holder: holderInfo,
+        entitlements,
+        features: allFeatures,
+      });
+    } catch (error: any) {
+      console.error("[Billing] Error fetching subscription details:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch subscription details",
+      });
+    }
+  });
+
+  // Admin: Change subscription plan (upgrade/downgrade)
+  app.post("/api/admin/subscriptions/:id/change-plan", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'administrator') {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized",
+        });
+      }
+      
+      const subscriptionId = req.params.id;
+      const { planId } = req.body;
+      
+      if (!planId) {
+        return res.status(400).json({
+          success: false,
+          message: "Plan ID is required",
+        });
+      }
+      
+      // Verify the new plan exists
+      const [newPlan] = await db.select()
+        .from(plans)
+        .where(eq(plans.id, planId));
+      
+      if (!newPlan) {
+        return res.status(404).json({
+          success: false,
+          message: "Plan not found",
+        });
+      }
+      
+      // Get current subscription
+      const [currentSub] = await db.select()
+        .from(subscriptions)
+        .where(eq(subscriptions.id, subscriptionId));
+      
+      if (!currentSub) {
+        return res.status(404).json({
+          success: false,
+          message: "Subscription not found",
+        });
+      }
+      
+      // Update subscription to new plan
+      const [updated] = await db.update(subscriptions)
+        .set({
+          planId: newPlan.id,
+          updatedAt: new Date(),
+        })
+        .where(eq(subscriptions.id, subscriptionId))
+        .returning();
+      
+      // Note: Current usage is maintained but will be enforced against new plan limits
+      // Usage automatically resets at the end of the billing period
+      
+      console.log(`[Admin] Changed subscription ${subscriptionId} to plan ${newPlan.name}`);
+      
+      res.json({
+        success: true,
+        message: `Subscription changed to ${newPlan.name}`,
+        subscription: updated,
+      });
+    } catch (error: any) {
+      console.error("[Billing] Error changing plan:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to change plan",
+      });
+    }
+  });
+
+  // Admin: Cancel subscription
+  app.post("/api/admin/subscriptions/:id/cancel", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'administrator') {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized",
+        });
+      }
+      
+      const subscriptionId = req.params.id;
+      const { immediate = false } = req.body;
+      
+      const [currentSub] = await db.select()
+        .from(subscriptions)
+        .where(eq(subscriptions.id, subscriptionId));
+      
+      if (!currentSub) {
+        return res.status(404).json({
+          success: false,
+          message: "Subscription not found",
+        });
+      }
+      
+      if (immediate) {
+        // Cancel immediately
+        const [canceled] = await db.update(subscriptions)
+          .set({
+            status: 'canceled',
+            canceledAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(subscriptions.id, subscriptionId))
+          .returning();
+        
+        console.log(`[Admin] Immediately canceled subscription ${subscriptionId}`);
+        
+        res.json({
+          success: true,
+          message: "Subscription canceled immediately",
+          subscription: canceled,
+        });
+      } else {
+        // Schedule cancellation at period end
+        const [scheduled] = await db.update(subscriptions)
+          .set({
+            scheduledCancellationDate: currentSub.currentPeriodEnd,
+            updatedAt: new Date(),
+          })
+          .where(eq(subscriptions.id, subscriptionId))
+          .returning();
+        
+        console.log(`[Admin] Scheduled cancellation for subscription ${subscriptionId} at period end`);
+        
+        res.json({
+          success: true,
+          message: "Subscription scheduled for cancellation at period end",
+          subscription: scheduled,
+        });
+      }
+    } catch (error: any) {
+      console.error("[Billing] Error canceling subscription:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to cancel subscription",
+      });
+    }
+  });
+
+  // ========================================================================
+  // FEATURE MANAGEMENT - Admin CRUD for features
+  // ========================================================================
+
+  // Get all features
+  app.get("/api/admin/features", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'administrator') {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized",
+        });
+      }
+
+      const allFeatures = await db.select()
+        .from(features)
+        .orderBy(features.key);
+
+      res.json({
+        success: true,
+        features: allFeatures,
+      });
+    } catch (error: any) {
+      console.error("[Features] Error fetching features:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch features",
+      });
+    }
+  });
+
+  // Create a new feature
+  app.post("/api/admin/features", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'administrator') {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized",
+        });
+      }
+
+      const validation = insertFeatureSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid feature data",
+          errors: validation.error.errors,
+        });
+      }
+
+      const [newFeature] = await db.insert(features)
+        .values(validation.data)
+        .returning();
+
+      res.json({
+        success: true,
+        feature: newFeature,
+      });
+    } catch (error: any) {
+      console.error("[Features] Error creating feature:", error);
+      res.status(500).json({
+        success: false,
+        message: error.message || "Failed to create feature",
+      });
+    }
+  });
+
+  // Update a feature
+  app.patch("/api/admin/features/:key", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'administrator') {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized",
+        });
+      }
+
+      const { key } = req.params;
+      
+      // Validate update data (exclude key - cannot be changed)
+      const updateSchema = insertFeatureSchema.partial().omit({ key: true });
+      const validation = updateSchema.safeParse(req.body);
+      
+      if (!validation.success) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid update data",
+          errors: validation.error.errors,
+        });
+      }
+
+      const [updatedFeature] = await db.update(features)
+        .set({
+          ...validation.data,
+          updatedAt: new Date(),
+        })
+        .where(eq(features.key, key))
+        .returning();
+
+      if (!updatedFeature) {
+        return res.status(404).json({
+          success: false,
+          message: "Feature not found",
+        });
+      }
+
+      res.json({
+        success: true,
+        feature: updatedFeature,
+      });
+    } catch (error: any) {
+      console.error("[Features] Error updating feature:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to update feature",
+      });
+    }
+  });
+
+  // Delete a feature
+  app.delete("/api/admin/features/:key", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'administrator') {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized",
+        });
+      }
+
+      const { key } = req.params;
+
+      // Delete associated entitlements first
+      await db.delete(featureEntitlements)
+        .where(eq(featureEntitlements.featureKey, key));
+
+      // Delete the feature
+      await db.delete(features)
+        .where(eq(features.key, key));
+
+      res.json({
+        success: true,
+        message: "Feature deleted successfully",
+      });
+    } catch (error: any) {
+      console.error("[Features] Error deleting feature:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to delete feature",
+      });
+    }
+  });
+
+  // ========================================================================
+  // PLAN MANAGEMENT - Admin CRUD for plans and entitlements
+  // ========================================================================
+
+  // Get all plans with entitlements
+  app.get("/api/admin/plans", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'administrator') {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized",
+        });
+      }
+
+      const allPlans = await db.select()
+        .from(plans)
+        .orderBy(plans.product, plans.tier, plans.interval);
+
+      // Get entitlements for all plans
+      const plansWithEntitlements = await Promise.all(
+        allPlans.map(async (plan) => {
+          const entitlements = await db.select()
+            .from(featureEntitlements)
+            .where(eq(featureEntitlements.planId, plan.id));
+
+          return {
+            ...plan,
+            entitlements,
+          };
+        })
+      );
+
+      res.json({
+        success: true,
+        plans: plansWithEntitlements,
+      });
+    } catch (error: any) {
+      console.error("[Plans] Error fetching plans:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch plans",
+      });
+    }
+  });
+
+  // Create a new plan
+  app.post("/api/admin/plans", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'administrator') {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized",
+        });
+      }
+
+      const validation = insertPlanSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid plan data",
+          errors: validation.error.errors,
+        });
+      }
+
+      const [newPlan] = await db.insert(plans)
+        .values(validation.data)
+        .returning();
+
+      res.json({
+        success: true,
+        plan: newPlan,
+      });
+    } catch (error: any) {
+      console.error("[Plans] Error creating plan:", error);
+      res.status(500).json({
+        success: false,
+        message: error.message || "Failed to create plan",
+      });
+    }
+  });
+
+  // Update a plan
+  app.patch("/api/admin/plans/:id", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'administrator') {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized",
+        });
+      }
+
+      const { id } = req.params;
+      
+      // Validate update data (exclude id - cannot be changed)
+      const updateSchema = insertPlanSchema.partial().omit({ id: true });
+      const validation = updateSchema.safeParse(req.body);
+      
+      if (!validation.success) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid update data",
+          errors: validation.error.errors,
+        });
+      }
+
+      const [updatedPlan] = await db.update(plans)
+        .set({
+          ...validation.data,
+          updatedAt: new Date(),
+        })
+        .where(eq(plans.id, id))
+        .returning();
+
+      if (!updatedPlan) {
+        return res.status(404).json({
+          success: false,
+          message: "Plan not found",
+        });
+      }
+
+      res.json({
+        success: true,
+        plan: updatedPlan,
+      });
+    } catch (error: any) {
+      console.error("[Plans] Error updating plan:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to update plan",
+      });
+    }
+  });
+
+  // Delete a plan
+  app.delete("/api/admin/plans/:id", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'administrator') {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized",
+        });
+      }
+
+      const { id } = req.params;
+
+      // Check if any subscriptions use this plan
+      const activeSubscriptions = await db.select()
+        .from(subscriptions)
+        .where(eq(subscriptions.planId, id));
+
+      if (activeSubscriptions.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Cannot delete plan with ${activeSubscriptions.length} active subscription(s)`,
+        });
+      }
+
+      // Delete associated entitlements first
+      await db.delete(featureEntitlements)
+        .where(eq(featureEntitlements.planId, id));
+
+      // Delete the plan
+      await db.delete(plans)
+        .where(eq(plans.id, id));
+
+      res.json({
+        success: true,
+        message: "Plan deleted successfully",
+      });
+    } catch (error: any) {
+      console.error("[Plans] Error deleting plan:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to delete plan",
+      });
+    }
+  });
+
+  // Get entitlements for a specific plan
+  app.get("/api/admin/plans/:id/entitlements", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'administrator') {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized",
+        });
+      }
+
+      const { id } = req.params;
+
+      const entitlements = await db.select()
+        .from(featureEntitlements)
+        .where(eq(featureEntitlements.planId, id));
+
+      res.json({
+        success: true,
+        entitlements,
+      });
+    } catch (error: any) {
+      console.error("[Plans] Error fetching entitlements:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch entitlements",
+      });
+    }
+  });
+
+  // Update entitlements for a plan (bulk upsert)
+  app.post("/api/admin/plans/:id/entitlements", authenticateSession, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (user.role !== 'admin' && user.role !== 'administrator') {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized",
+        });
+      }
+
+      const { id } = req.params;
+      const { entitlements: newEntitlements } = req.body;
+
+      if (!Array.isArray(newEntitlements)) {
+        return res.status(400).json({
+          success: false,
+          message: "Entitlements must be an array",
+        });
+      }
+
+      // Delete existing entitlements
+      await db.delete(featureEntitlements)
+        .where(eq(featureEntitlements.planId, id));
+
+      // Insert new entitlements
+      if (newEntitlements.length > 0) {
+        await db.insert(featureEntitlements)
+          .values(
+            newEntitlements.map((ent: any) => ({
+              planId: id,
+              featureKey: ent.featureKey,
+              enabled: ent.enabled ?? 0,
+              monthlyCap: ent.monthlyCap ?? null,
+              overageUnitCents: ent.overageUnitCents ?? null,
+            }))
+          );
+      }
+
+      const updatedEntitlements = await db.select()
+        .from(featureEntitlements)
+        .where(eq(featureEntitlements.planId, id));
+
+      res.json({
+        success: true,
+        entitlements: updatedEntitlements,
+      });
+    } catch (error: any) {
+      console.error("[Plans] Error updating entitlements:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to update entitlements",
       });
     }
   });

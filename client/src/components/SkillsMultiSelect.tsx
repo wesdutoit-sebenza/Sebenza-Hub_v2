@@ -57,12 +57,14 @@ export function SkillsMultiSelect({
     return SKILLS_BY_CATEGORY.map(category => ({
       ...category,
       skills: category.skills.filter(skill =>
-        skill.toLowerCase().includes(query)
+        skill && typeof skill === 'string' && skill.toLowerCase().includes(query)
       ),
     })).filter(category => category.skills.length > 0);
   }, [searchQuery]);
 
-  const selectedSkillNames = useMemo(() => value.map(s => s.skill), [value]);
+  const selectedSkillNames = useMemo(() => 
+    value.filter(s => s && s.skill).map(s => s.skill), 
+  [value]);
 
   const handleToggleSkill = (skillName: string) => {
     const currentIndex = selectedSkillNames.indexOf(skillName);
@@ -80,12 +82,12 @@ export function SkillsMultiSelect({
       onChange([...value, newSkill]);
     } else {
       // Removing a skill
-      onChange(value.filter(s => s.skill !== skillName));
+      onChange(value.filter(s => s && s.skill && s.skill !== skillName));
     }
   };
 
   const handleRemoveSkill = (skillName: string) => {
-    onChange(value.filter(s => s.skill !== skillName));
+    onChange(value.filter(s => s && s.skill && s.skill !== skillName));
   };
 
   const handleMoveSkill = (fromIndex: number, toIndex: number) => {
@@ -188,14 +190,14 @@ export function SkillsMultiSelect({
       {/* Display selected skills with level and priority controls */}
       {value.length > 0 && (
         <div className="space-y-3" data-testid="selected-skills-container">
-          {value.map((skillObj, idx) => (
+          {value.filter(skillObj => skillObj && skillObj.skill).map((skillObj, idx) => (
             <div key={skillObj.skill} className="space-y-2 p-3 border rounded-md">
               {/* Skill name and controls row */}
               <div className="flex gap-2 items-center">
                 <Badge
                   variant="secondary"
                   className="flex-1"
-                  data-testid={`badge-skill-${skillObj.skill.toLowerCase().replace(/\s+/g, '-')}`}
+                  data-testid={`badge-skill-${(skillObj.skill || '').toLowerCase().replace(/\s+/g, '-')}`}
                 >
                   {skillObj.skill}
                 </Badge>
@@ -231,7 +233,7 @@ export function SkillsMultiSelect({
                     size="icon"
                     onClick={() => handleRemoveSkill(skillObj.skill)}
                     aria-label="Remove skill"
-                    data-testid={`button-remove-skill-${skillObj.skill.toLowerCase().replace(/\s+/g, '-')}`}
+                    data-testid={`button-remove-skill-${(skillObj.skill || '').toLowerCase().replace(/\s+/g, '-')}`}
                   >
                     <X className="h-4 w-4" />
                   </Button>

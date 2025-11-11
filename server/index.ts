@@ -5,9 +5,17 @@ import cookieParser from "cookie-parser";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import cors from "cors";
+import compression from "compression";
 import { pool as pgPool } from "./db-pool";
 
 const app = express();
+
+// Enable Brotli/Gzip compression for all responses
+// Brotli provides better compression than gzip (especially for text/JSON)
+app.use(compression({
+  brotli: { enabled: true },
+  threshold: 0  // Compress all responses regardless of size
+}));
 
 // CORS configuration for external browser access
 // More permissive for Safari and other browsers
@@ -78,8 +86,20 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: false }));
 
-// Serve uploaded files
-app.use('/uploads', express.static('uploads'));
+// Serve uploaded files with aggressive caching (1 year for immutable assets)
+app.use('/uploads', express.static('uploads', {
+  setHeaders: (res, path) => {
+    // Cache images aggressively since they rarely change
+    if (/\.(jpg|jpeg|png|gif|webp|avif|svg|ico)$/i.test(path)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    } else if (/\.(pdf|doc|docx)$/i.test(path)) {
+      // Cache documents for 1 hour
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+    } else {
+      res.setHeader('Cache-Control', 'public, max-age=86400'); // 1 day default
+    }
+  }
+}));
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -229,6 +249,13 @@ app.use((req, res, next) => {
     // Start background workers if Redis is available
     import('./start-workers.js').catch(err => {
       console.log('[Workers] Background workers not started:', err.message);
+    });
+    
+    // Initialize billing cron job for monthly usage resets
+    import('./services/billing-cron.js').then(({ initializeBillingCron }) => {
+      initializeBillingCron();
+    }).catch(err => {
+      console.error('[Billing Cron] Failed to initialize billing cron job:', err.message);
     });
   });
 })();

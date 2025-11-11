@@ -60,6 +60,7 @@ export default function Header() {
     { path: "/", label: "Home" },
     { path: "/recruiters", label: "For Recruiters" },
     { path: "/individuals", label: "For Individuals" },
+    { path: "/pricing", label: "Pricing" },
     { path: "/contact", label: "Contact Us" },
   ];
 
