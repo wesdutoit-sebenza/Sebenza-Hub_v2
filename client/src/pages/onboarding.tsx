@@ -22,14 +22,18 @@ export default function Onboarding() {
       const res = await apiRequest('POST', '/api/me/role', { role });
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
+    onSuccess: async () => {
+      // Invalidate and refetch user data
+      await queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
+      await queryClient.refetchQueries({ queryKey: ['/api/auth/user'] });
+      
+      // Redirect to appropriate dashboard based on selected role
       if (selectedRole === 'individual') {
-        setLocation('/onboarding/individual');
+        setLocation('/dashboard/individual/profile');
       } else if (selectedRole === 'business') {
-        setLocation('/onboarding/business');
+        setLocation('/');
       } else if (selectedRole === 'recruiter') {
-        setLocation('/onboarding/recruiter');
+        setLocation('/dashboard/recruiter/profile');
       }
     },
     onError: () => {
