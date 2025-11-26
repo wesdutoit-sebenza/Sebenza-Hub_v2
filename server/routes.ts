@@ -2550,12 +2550,9 @@ Based on the job title "${jobTitle}", suggest 5-8 most relevant skills from the 
         role: 'owner',
       });
 
-      const roleType = organization.type === 'employer' ? 'business' : 'recruiter';
-      const onboardingComplete = fullUser.onboardingComplete as any || {};
-      onboardingComplete[roleType] = true;
-
+      // Mark onboarding as complete (auto-approve businesses)
       await db.update(users)
-        .set({ onboardingComplete })
+        .set({ onboardingComplete: 1 })
         .where(eq(users.id, userId));
 
       // Queue fraud detection for organization
@@ -2625,7 +2622,10 @@ Based on the job title "${jobTitle}", suggest 5-8 most relevant skills from the 
       }
 
       const [profile] = await db.insert(recruiterProfiles)
-        .values(validatedData)
+        .values({
+          ...validatedData,
+          verificationStatus: 'approved', // Auto-approve recruiters on onboarding
+        })
         .returning();
 
       // Check if organization already exists for this user (idempotency)

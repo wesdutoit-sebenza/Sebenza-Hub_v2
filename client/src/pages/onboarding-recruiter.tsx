@@ -120,7 +120,7 @@ export default function OnboardingRecruiter() {
       
       toast({
         title: "Recruiter profile created!",
-        description: "Your profile is pending verification.",
+        description: "Your profile is ready. Welcome to Sebenza Hub!",
       });
       setLocation("/dashboard/recruiter/profile");
     },

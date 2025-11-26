@@ -86,7 +86,7 @@ export default function OnboardingBusiness() {
         title: "Organization created!",
         description: "Your company profile is ready.",
       });
-      setLocation("/");
+      setLocation("/settings/business");
     },
     onError: (error: any) => {
       toast({

@@ -63,7 +63,7 @@ export default function Onboarding() {
         } else if (role === 'recruiter') {
           setLocation('/dashboard/recruiter/profile');
         } else if (role === 'business') {
-          setLocation('/');
+          setLocation('/settings/business');
         } else if (role === 'admin') {
           setLocation('/admin/overview');
         }
