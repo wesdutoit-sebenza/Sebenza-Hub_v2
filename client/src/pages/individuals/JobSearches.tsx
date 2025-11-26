@@ -49,9 +49,9 @@ export default function IndividualJobSearches() {
 
   const filteredJobs = jobsData?.jobs?.filter(job => {
     const matchesSearch = searchQuery === "" || 
-      job.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      job.company.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      job.description.toLowerCase().includes(searchQuery.toLowerCase());
+      job.title?.toLowerCase()?.includes(searchQuery.toLowerCase()) ||
+      job.company?.toLowerCase()?.includes(searchQuery.toLowerCase()) ||
+      job.description?.toLowerCase()?.includes(searchQuery.toLowerCase());
     
     const matchesLocation = locationFilter === "all" || job.location === locationFilter;
     const matchesIndustry = industryFilter === "all" || job.industry === industryFilter;
