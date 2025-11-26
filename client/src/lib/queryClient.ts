@@ -1,5 +1,14 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || "";
+
+function getApiUrl(path: string): string {
+  if (API_BASE_URL && !path.startsWith("http")) {
+    return `${API_BASE_URL}${path}`;
+  }
+  return path;
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
