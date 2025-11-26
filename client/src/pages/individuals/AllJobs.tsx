@@ -62,8 +62,8 @@ export default function AllJobs() {
     const matchesSearch = searchQuery === "" || 
       job.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       job.company.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      job.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      job.core?.summary?.toLowerCase().includes(searchQuery.toLowerCase());
+      job.description?.toLowerCase()?.includes(searchQuery.toLowerCase()) ||
+      job.core?.summary?.toLowerCase()?.includes(searchQuery.toLowerCase());
     
     const jobLocation = formatLocation(job);
     const jobIndustry = job.industry || job.companyDetails?.industry;
