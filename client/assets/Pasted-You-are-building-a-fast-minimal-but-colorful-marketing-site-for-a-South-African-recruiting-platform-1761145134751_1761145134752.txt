@@ -1,0 +1,109 @@
+You are building a fast, minimal-but-colorful marketing site for a South African recruiting platform.
+
+## Tech
+- Vite + React + TypeScript + Tailwind CSS
+- React Router (v6+) for multi-page routing
+- Mobile-first. Accessible. Lighthouse 95+ targets.
+
+## Brand vibe
+- Minimal layout, bold color accents, generous whitespace
+- Palette: base #0B1220 (ink), #F8FAFC (off-white); accents #8B5CF6 (violet), #0EA5E9 (cyan), #10B981 (green), #F59E0B (amber)
+- Typography: Inter (UI), Newsreader (headlines) via Google Fonts
+- Motion: gentle hover + reveal-on-scroll
+
+## Routes (4 pages)
+- `/` → **Home**
+  - Hero with headline: “Hiring that actually moves.”
+  - Sub: “A trust layer for SA recruiting—transparent salaries, WhatsApp-first funnels, and built-in compliance.”
+  - CTA buttons: “Get early access”, “View product tour”
+  - Value props (4): Trust Layer, Mini-ATS for SMEs, WhatsApp-First Apply, Skills Proof
+  - “Product Tour” modal (3 slides)
+  - Pricing (Starter, Team, Business) with monthly/annual toggle
+  - Testimonials, FAQ, Footer
+  - Teaser blocks linking to the three pages (cards with “Learn more”):
+    - For Recruiters → `/recruiters`
+    - For Businesses → `/businesses`
+    - For Individuals → `/individuals`
+
+- `/recruiters` → **For Recruiters**
+  - H1: “Less noise. Faster shortlists.”
+  - Bullets: verify employers & ads, required salary ranges, export to Pnet/CJ/Adzuna, structured interviews, pipeline Kanban
+  - Mini UI mocks: Job post form, pipeline, EE report export (CSV icon)
+  - Stats row (dummy): time-to-shortlist ↓50%, cost-per-hire ↓22%
+  - CTA: “See recruiter workflow” and “Book a demo”
+  - FAQ subset: integrations, POPIA consent logs, EE reporting exports
+
+- `/businesses` → **For Businesses**
+  - H1: “Hiring that fits SME realities.”
+  - Value props: one-click multi-post, WhatsApp apply, background-check API placeholders, POPIA/EE compliance
+  - Micro case blurb (dummy): JHB retailer reduced no-shows by 28%
+  - Pricing callout: suggest “Team” plan
+  - CTA: “Start free” and “Talk to sales”
+
+- `/individuals` → **For Individuals**
+  - H1: “One profile. Real salary ranges.”
+  - Steps: Create profile → 2-minute skills task → Interview
+  - WhatsApp QR mock + “Apply on WhatsApp” button (non-functional placeholder)
+  - Portfolio/skills cards: upload work sample, short assessment, verified credential badges
+  - CTA: “Create your profile”
+
+## Layout & navigation
+- Shared `<RootLayout>` with sticky header, footer, and `<Outlet/>`
+- Header: wordmark, nav links (Home, Recruiters, Businesses, Individuals), primary CTA “Get early access”
+- Active link styling, keyboard focus outlines, skip-to-content link
+- Footer: Privacy, POPIA, Terms, Contact (hello@yourdomain.co.za), 🇿🇦 “Built in SA”
+
+## Components
+- Header, Footer, Section, Button (solid/ghost), Card, Badge, Modal, FAQAccordion, PricingTable, TourSlides, Stat
+- Reusable GradientBlob background for hero and page headers
+- PageHeader component with small gradient and breadcrumb (Home / Page)
+
+## Data (put in `/src/data.ts`)
+- `testimonials: { name, title, company, quote }[]`
+- `faqs: { q, a, audience?: 'all' | 'recruiters' | 'businesses' | 'individuals' }[]`
+- `pricingPlans`, `tourSlides`
+- SA-flavoured placeholder content (Johannesburg, Cape Town, Durban)
+
+## Functionality
+- React Router setup with 4 routes; 404 “Not Found” page
+- Smooth scrolling for in-page anchors on Home
+- Email capture form posts to `/api/subscribe` (mock handler; log to console)
+- Pricing toggle (monthly/annual) stateful
+- Modal for product tour with keyboard traps & focus return
+- Light scroll-reveal animations (IntersectionObserver or simple CSS)
+
+## Accessibility & SEO
+- Landmarks, alt text, color contrast
+- Per-route `<Helmet>` (or `<head>` updates) for title & meta description
+  - Home: “SA recruiting platform—trust layer, WhatsApp-first, compliance”
+  - Recruiters: “Reduce noise. Faster shortlists.”
+  - Businesses: “SME-friendly hiring with POPIA/EE compliance”
+  - Individuals: “One profile. Verified skills. Transparent pay.”
+- Open Graph tags
+- Schema.org Organization + WebSite
+
+## Files to produce
+- `index.html` (mount + fonts + meta)
+- `src/main.tsx` (Router)
+- `src/App.tsx` (RootLayout + routes shell)
+- `src/pages/Home.tsx`
+- `src/pages/Recruiters.tsx`
+- `src/pages/Businesses.tsx`
+- `src/pages/Individuals.tsx`
+- `src/pages/NotFound.tsx`
+- `src/components/*` (Header, Footer, Section, Button, Card, Modal, FAQAccordion, PricingTable, TourSlides, PageHeader, GradientBlob, Stat)
+- `src/data.ts`
+- `src/styles.css` (Tailwind base/utilities)
+- `tailwind.config.js`, `postcss.config.js`, `package.json`
+- `README.md` with run instructions
+
+## Styling notes
+- Cards: rounded-2xl, subtle shadow, 1px border using ink at 10% opacity
+- Buttons: primary uses accent gradient (cyan→violet), ghost uses ink border
+- Use accent pops sparingly; keep lots of off-white whitespace
+
+## Stretch (optional)
+- “SA Hiring Index” teaser on Home with a tiny dummy chart component
+- “Learnerships & BBBEE” banner on Businesses page
+
+Build the full project now with working routes, placeholder content, and clear TODO comments where real integrations would go. Keep code clean and commented.

@@ -1,0 +1,546 @@
+# Sebenza Hub – Auto Search AI Matchmaker
+
+A production‑ready blueprint to auto‑match candidates to jobs, rank results, and generate human‑readable explanations.
+
+---
+
+## 1) Goal
+
+Automatically search and rank open roles for a candidate using their CV/profile + preferences (job titles, location + radius, employment type, work arrangement, seniority, salary, etc.). The system should:
+
+* Apply **hard filters** (must‑match constraints)
+* Compute **multi‑factor scores** (skills, seniority, title, location, salary, arrangement…)
+* Use **semantic embeddings** for resume↔job similarity
+* Use an **LLM re‑ranker** for the top N to generate a final score and **“why this fits” explanation**
+* Return a **structured JSON** suitable for UI cards + sort/filters
+
+---
+
+## 2) Architecture Overview
+
+```
+CV & Profile  ─┐
+               ├─> 1) Normalization & Feature Extraction (skills, titles, locations, salary band, seniority)
+Job Posts     ─┘
+                      │
+                      ▼
+                2) Vector Index (embeddings)
+                      │
+                      ▼
+          3) Candidate Query Builder (filters + weights)
+                      │
+                      ▼
+     4) Retrieval: Hard Filters + Vector Similarity (top 200)
+                      │
+                      ▼
+    5) Heuristic Scoring (location, salary, seniority, type, arrangement)
+                      │
+                      ▼
+   6) LLM Re‑Ranker (top 50 → top 10 with reasons & risks)
+                      │
+                      ▼
+           7) Response JSON (ranked + explanations)
+```
+
+---
+
+## 3) Data Model (Postgres)
+
+**jobs**
+
+* id (uuid)
+* title (text)
+* normalized_title (text) — map to taxonomy (e.g., O*NET/ESCO or internal)
+* description (text)
+* key_responsibilities (text[])
+* required_skills (text[])
+* nice_to_have_skills (text[])
+* min_salary, max_salary (int, ZAR/month) — store normalized
+* currency (text), pay_period (enum: monthly, annually, hourly)
+* employment_type (enum: permanent, contract, freelance, temp)
+* work_arrangement (enum: onsite, hybrid, remote)
+* seniority (enum: intern, junior, mid, senior, lead, manager, director, exec)
+* company (text)
+* location_city (text), location_province (text), location_country (text)
+* latitude (float8), longitude (float8)
+* posted_at (timestamptz)
+* **embedding** (vector) — from title + desc + skills
+
+**candidates**
+
+* id (uuid)
+* name (text)
+* primary_job_titles (text[])
+* location_city/province/country, latitude, longitude
+* salary_expectation_min/max (int, ZAR/month)
+* employment_type_prefs (text[])
+* work_arrangement_prefs (text[])
+* seniority_current (enum)
+* seniority_target (enum)
+* skills (text[])
+* years_experience (int)
+* cv_text (text)
+* **embedding** (vector) — from cv_text + titles + skills
+
+**indexes**
+
+* GIN on text arrays
+* HNSW/IVFFlat on embeddings (via pgvector)
+* btree on (seniority, employment_type, work_arrangement)
+* gist on geog point (for radius queries) if using PostGIS
+
+---
+
+## 4) Normalization Rules
+
+1. **Titles** → map variants ("Software Eng", "Developer", "Full‑stack Engineer") to normalized groups using a lookup table or ML model. Store both raw and normalized.
+2. **Skills** → lowercased, singularized, de‑duplicated ("SQL", "Structured Query Language" → "sql").
+3. **Salary** → convert to **ZAR per month** when ingesting. Keep original fields for display.
+4. **Seniority** → map from text cues ("5+ years", "Lead", "Head") to enum.
+5. **Location** → geocode to lat/lon; store city/province for display; use km for radius.
+
+---
+
+## 5) Matching Pipeline (Detailed)
+
+### Step A: Build Candidate Query
+
+Input from user:
+
+* `titles[]` (multiple allowed)
+* `location` + `radius_km`
+* `employment_types[]`
+* `work_arrangements[]`
+* `seniority_target` (optional)
+* `salary_min`, `salary_max` (optional)
+* additional: industry, visa/eligibility, availability date
+
+Rules:
+
+* **Hard filters**: employment_type, work_arrangement, location radius (optional toggle), legal constraints (e.g., must be SA citizen), and salary band (optional soft vs hard switch).
+* **Soft weights**: title similarity, skills overlap, seniority match, salary proximity, recency of posting.
+
+### Step B: Retrieve
+
+* Use vector search on `jobs.embedding` with query vector built from: candidate CV + selected titles + skills + preferences prompt.
+* Apply **hard filters** in SQL (WHERE clauses):
+
+  * employment_type IN (...) if enforced
+  * work_arrangement IN (...) if enforced
+  * `ST_DWithin(job.geom, candidate.geom, radius_meters)` if radius filter on
+  * seniority buckets if strictly required
+
+### Step C: Heuristic Score (0–100)
+
+```
+score = 100 * [
+  0.35 * vec_sim                    # semantic CV↔job
++ 0.15 * skills_jaccard             # |intersect| / |union|
++ 0.10 * title_similarity           # embedding or fuzzy match
++ 0.10 * location_score             # haversine distance -> decay
++ 0.10 * salary_alignment           # within target band
++ 0.08 * seniority_alignment        # match or one step up/down
++ 0.07 * type_arrangement_match     # employment_type + work_arrangement
++ 0.05 * recency                    # newer posts favored
+]
+```
+
+**Location score**
+
+* If remote and candidate accepts remote → 1.0
+* Else use exponential decay: `exp(-distance_km / k)` (choose k ≈ 15–30)
+
+**Salary alignment**
+
+* If job range contains candidate min → 1.0
+* Partial overlap → 0.5–0.8 proportional to overlap fraction
+* No overlap → 0.1 (unless soft salary filter off)
+
+**Seniority**
+
+* Exact match: 1.0; one step away: 0.7; otherwise 0.3
+
+### Step D: LLM Re‑Ranker (Top 50 → Top 10)
+
+* Provide the candidate profile (titles, summary, key projects, skills, preferences) and the top 50 jobs with their heuristic features to an LLM.
+* Ask for **JSON output only** with a re‑scored list and **concise per‑job explanation + risk**.
+* The LLM should **not** introduce new facts; it can only use given inputs.
+
+**Re‑ranker JSON schema**
+
+```json
+{
+  "results": [
+    {
+      "job_id": "uuid",
+      "llm_score": 0-100,
+      "explanation": "string (<= 320 chars)",
+      "risks": "string (<= 200 chars)",
+      "highlighted_skills": ["sql","python","etl"]
+    }
+  ]
+}
+```
+
+**Prompt (system)**
+
+> You are a recruiting matchmaker. Re‑rank the candidate’s top 50 job options. Consider title alignment, mandatory skills, transferable skills, seniority, location/radius rules, salary fit, employment type, work arrangement, and recency. Do not fabricate skills. Output JSON only per the given schema.
+
+**Prompt (user)**
+
+* Candidate profile JSON
+* Array of job snippets with computed features
+
+### Step E: Final Score
+
+```
+final_score = 0.7 * heuristic_score + 0.3 * llm_score
+```
+
+Return **Top 10–20** with tie‑breakers: higher skills overlap, newer posts, closer distance.
+
+---
+
+## 6) API Design (Express + TypeScript)
+
+**POST /api/auto-search**
+
+* Body:
+
+```ts
+interface AutoSearchRequest {
+  candidateId: string;
+  titles?: string[];
+  location?: { lat: number; lon: number; radiusKm?: number; enforceRadius?: boolean };
+  employmentTypes?: ("permanent"|"contract"|"freelance"|"temp")[];
+  workArrangements?: ("onsite"|"hybrid"|"remote")[];
+  seniorityTarget?: string;
+  salary?: { min?: number; max?: number; enforce?: boolean };
+  topK?: number; // default 20
+}
+```
+
+* Response:
+
+```ts
+interface AutoSearchResult {
+  generatedAt: string;
+  candidateId: string;
+  results: Array<{
+    jobId: string;
+    company: string;
+    title: string;
+    location: { city: string; province: string; distanceKm?: number };
+    salary: { min?: number; max?: number; display?: string };
+    scores: { heuristic: number; llm?: number; final: number };
+    explanation: string; // concise
+    risks?: string;
+    highlightedSkills: string[];
+  }>;
+}
+```
+
+**GET /api/auto-search/:candidateId/last** — fetch last run
+
+**POST /api/auto-search/:candidateId/feedback** — capture user feedback (👍/👎, applied?, interview?) for learning.
+
+---
+
+## 7) Key Queries (Postgres + PostGIS/pgvector)
+
+**Vector retrieval (pgvector)**
+
+```sql
+SELECT id, title, company, ... , 1 - (embedding <=> $1) AS vec_sim
+FROM jobs
+WHERE employment_type = ANY($2)
+  AND work_arrangement = ANY($3)
+  AND (
+       $4::bool = false
+       OR ST_DWithin(geom::geography, ST_MakePoint($5,$6)::geography, $7 * 1000)
+  )
+ORDER BY embedding <=> $1
+LIMIT 200;
+```
+
+**Distance calculation** (if not using PostGIS): Haversine in app layer.
+
+---
+
+## 8) Matching Utilities (TypeScript snippets)
+
+**Skills Jaccard**
+
+```ts
+export function jaccard(a: string[], b: string[]): number {
+  const A = new Set(a.map(s=>s.toLowerCase()));
+  const B = new Set(b.map(s=>s.toLowerCase()));
+  const inter = [...A].filter(x => B.has(x)).length;
+  const union = new Set([...A, ...B]).size;
+  return union === 0 ? 0 : inter / union;
+}
+```
+
+**Location score**
+
+```ts
+export function haversineKm(lat1:number, lon1:number, lat2:number, lon2:number){
+  const toRad = (d:number)=>d*Math.PI/180;
+  const R=6371;
+  const dLat=toRad(lat2-lat1), dLon=toRad(lon2-lon1);
+  const a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(a));
+}
+
+export function locationScore(distanceKm:number, k=20){
+  if (distanceKm==null) return 0.5;
+  return Math.exp(-distanceKm / k);
+}
+```
+
+**Salary alignment**
+
+```ts
+export function salaryAlignment(jobMin?:number, jobMax?:number, candMin?:number, candMax?:number){
+  if(jobMin==null && jobMax==null) return 0.6;
+  const jMin=jobMin??jobMax??0, jMax=jobMax??jobMin??0;
+  const cMin=candMin??0, cMax=candMax??cMin;
+  const overlap = Math.max(0, Math.min(jMax, cMax) - Math.max(jMin, cMin));
+  const span = Math.max(jMax, cMax) - Math.min(jMin, cMin) || 1;
+  return overlap>0 ? 0.6 + 0.4*(overlap/span) : 0.1;
+}
+```
+
+**Heuristic score**
+
+```ts
+export function heuristicScore(f:{
+  vecSim:number; skillsJac:number; titleSim:number; distKm?:number; salaryAlign:number;
+  seniorityAlign:number; typeArrange:number; recency:number
+}){
+  const loc = f.distKm==null ? 0.5 : locationScore(f.distKm);
+  const score = 100*(
+    0.35*f.vecSim + 0.15*f.skillsJac + 0.10*f.titleSim + 0.10*loc +
+    0.10*f.salaryAlign + 0.08*f.seniorityAlign + 0.07*f.typeArrange + 0.05*f.recency
+  );
+  return Math.max(0, Math.min(100, score));
+}
+```
+
+**Seniority alignment**
+
+```ts
+const order = ["intern","junior","mid","senior","lead","manager","director","exec"];
+export function seniorityAlign(job:string, target?:string){
+  const ji = order.indexOf(job), ti = order.indexOf(target||job);
+  if(ji<0 || ti<0) return 0.6;
+  const d = Math.abs(ji-ti);
+  return d===0?1:d===1?0.7:d===2?0.4:0.2;
+}
+```
+
+---
+
+## 9) LLM Re‑Ranker Prompt (Concrete)
+
+**System**
+
+```
+You are an expert technical recruiter for the South African market. Re‑rank the jobs for this candidate.
+Rules:
+- Consider title match, must‑have skills, transferable skills, seniority, location and radius rules, salary fit, employment type, work arrangement, and posting recency.
+- Do not invent facts. Use only the provided fields.
+- Output JSON per the schema. No prose.
+- Prefer roles within the candidate’s radius unless remote is allowed by both.
+- Short explanations: <= 320 chars. Include 2–4 skills from the overlap.
+```
+
+**User**
+
+```json
+{
+  "candidate": { /* titles, skills, summary, location, radius, prefs, salary */ },
+  "jobs": [
+    {
+      "job_id": "...",
+      "title": "...",
+      "normalized_title": "software_engineer",
+      "company": "...",
+      "skills_required": ["react","node","sql"],
+      "skills_nice": ["aws","docker"],
+      "seniority": "mid",
+      "employment_type": "permanent",
+      "work_arrangement": "hybrid",
+      "distance_km": 14.2,
+      "salary_min": 35000,
+      "salary_max": 55000,
+      "vec_sim": 0.83,
+      "skills_jaccard": 0.62,
+      "title_sim": 0.74,
+      "recency": 0.9
+    }
+    // ... up to 50
+  ]
+}
+```
+
+**Expected JSON**
+
+```json
+{
+  "results": [
+    {
+      "job_id": "...",
+      "llm_score": 88,
+      "explanation": "Strong React/Node match, SQL projects align; hybrid within 15km and salary meets expectation.",
+      "risks": "AWS missing; 1 level above current seniority.",
+      "highlighted_skills": ["react","node","sql"]
+    }
+  ]
+}
+```
+
+---
+
+## 10) Frontend (React) – Candidate Auto Search Form (fields)
+
+* Job Titles (multi‑select with autocomplete from taxonomy)
+* Location (Google Places or internal list) + Radius (slider 0–100 km)
+* Employment Type (checkboxes)
+* Work Arrangement (checkboxes)
+* Seniority Target (select)
+* Salary Range (ZAR/month) + “enforce salary as hard filter” toggle
+* Industry (optional), Availability date, Visa/eligibility (checkbox)
+* **Search** button + **Save search** + **Auto alerts** toggle
+
+**Result Cards**
+
+* Title, Company, Badge group (Match %, Distance, Salary fit, Seniority fit)
+* 2–4 highlighted skills chips
+* Short explanation (“Why this fits”) + risk line (“Watchouts”)
+* Apply / Save Job / Hide ✕
+
+---
+
+## 11) Observability & Feedback
+
+* Log inputs, feature vectors, scores, and final decisions (PII‑safe).
+* Capture feedback (👍/👎, applied/interviewed/offered) to adjust weights.
+* Daily report: top queries, average match scores, drop‑offs.
+
+---
+
+## 12) Security & Fairness
+
+* Strip sensitive attributes (age, gender, race, HIV status, etc.) from feature extraction and prompts.
+* Explainability: Store explanation alongside score.
+* Rate‑limit LLM calls; cache re‑ranker results per candidate+filters.
+
+---
+
+## 13) Implementation Phases
+
+**Phase 1 (MVP, 1–2 weeks)**
+
+* Ingest jobs & candidates, normalization, pgvector search, heuristic scorer, basic UI, top‑N ranking.
+
+**Phase 2**
+
+* LLM re‑ranker with explanations; saved searches + email/WhatsApp alerts.
+
+**Phase 3**
+
+* Online learning from feedback, A/B weights, cold‑start skill inference from CV, multi‑objective tuning.
+
+---
+
+## 14) Starter Express Route (outline)
+
+```ts
+import { Router } from "express";
+import { embed, rerankLLM } from "./llm";
+import { jaccard, heuristicScore, seniorityAlign, haversineKm } from "./match-utils";
+
+const router = Router();
+
+router.post("/auto-search", async (req, res) => {
+  const q = req.body as AutoSearchRequest;
+  const cand = await db.getCandidate(q.candidateId);
+  const qText = [cand.cv_text, ...(q.titles||[]), ...(cand.skills||[])].join("\n");
+  const qVec = await embed(qText);
+
+  const jobs = await db.retrieveJobs(qVec, q); // vector + hard filters (SQL)
+
+  const enriched = jobs.map(j => {
+    const distKm = (q.location && j.lat && j.lon)
+      ? haversineKm(q.location.lat, q.location.lon, j.lat, j.lon)
+      : undefined;
+    const skillsJac = jaccard(cand.skills||[], j.required_skills||[]);
+    const titleSim = j.title_sim ?? j.vec_sim; // fallback
+    const salaryAlign = salaryAlignment(j.min_salary, j.max_salary, q.salary?.min, q.salary?.max);
+    const seniority = seniorityAlign(j.seniority, q.seniorityTarget || cand.seniority_target);
+    const typeArrange = ((q.employmentTypes||[]).includes(j.employment_type) ? 0.5 : 0) +
+                        ((q.workArrangements||[]).includes(j.work_arrangement) ? 0.5 : 0);
+    const heuristic = heuristicScore({
+      vecSim: j.vec_sim,
+      skillsJac,
+      titleSim,
+      distKm,
+      salaryAlign,
+      seniorityAlign: seniority,
+      typeArrange,
+      recency: j.recency
+    });
+    return { ...j, distKm, skillsJac, titleSim, salaryAlign, seniority, typeArrange, heuristic };
+  });
+
+  const top = enriched.sort((a,b)=>b.heuristic-a.heuristic).slice(0,50);
+  const llm = await rerankLLM(cand, top);
+  const llmMap = new Map(llm.results.map(r=>[r.job_id,r]));
+
+  const results = top.map(j => {
+    const lr = llmMap.get(j.id);
+    const final = Math.round(0.7*j.heuristic + 0.3*(lr?.llm_score ?? 0));
+    return {
+      jobId: j.id,
+      company: j.company,
+      title: j.title,
+      location: { city: j.location_city, province: j.location_province, distanceKm: j.distKm },
+      salary: { min: j.min_salary, max: j.max_salary },
+      scores: { heuristic: Math.round(j.heuristic), llm: lr?.llm_score, final },
+      explanation: lr?.explanation || "High skill and title overlap; within radius.",
+      risks: lr?.risks,
+      highlightedSkills: lr?.highlighted_skills || []
+    };
+  }).sort((a,b)=>b.scores.final-a.scores.final).slice(0, q.topK || 20);
+
+  res.json({ generatedAt: new Date().toISOString(), candidateId: q.candidateId, results });
+});
+
+export default router;
+```
+
+---
+
+## 15) Testing Checklist
+
+* ✅ Salary normalization works for annual/hourly → monthly ZAR
+* ✅ Remote roles ignore radius if both sides allow
+* ✅ Seniority tolerance ±1 level
+* ✅ “Hard salary filter” excludes non‑overlapping bands
+* ✅ Explanations never reveal sensitive attributes
+* ✅ Performance: < 800ms retrieval + < 2.5s LLM re‑rank (cached)
+
+---
+
+## 16) Future Enhancements
+
+* Skill extraction from CV using NER + taxonomy mapping
+* Company/culture preferences (opt‑in)
+* Travel/relocation willingness
+* Commute mode (car/public) time scoring
+* Diversity & fairness audits
+
+---
+
+**This spec and code are drop‑in friendly for your Replit TS/Express stack and can be trimmed or expanded as needed.**

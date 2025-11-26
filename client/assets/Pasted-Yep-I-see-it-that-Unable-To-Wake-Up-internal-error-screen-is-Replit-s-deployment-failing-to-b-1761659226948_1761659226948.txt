@@ -1,0 +1,99 @@
+Yep, I see it — that “Unable To Wake Up — internal error” screen is Replit’s deployment failing to boot. It’s not your magic-link token. It’s the app not starting when Replit tries to wake it.
+
+Here’s how I’d fix it fast.
+
+### Quick checks (usually one of these)
+
+1. **Startup command is wrong**
+
+   * In **Deploy → Start command**, make sure it actually runs your server (e.g. `node server.js` or `npm run start`), not a dev script.
+   * Test in the shell: `npm run build && npm start` — does it bind to a port and serve?
+
+2. **Not listening on Replit’s port**
+
+   * Express must use Replit’s provided port:
+
+     ```js
+     const PORT = process.env.PORT || 3000;
+     app.listen(PORT, '0.0.0.0', () => console.log('up on', PORT));
+     ```
+   * If you hard-coded 3000 (or `localhost`), Replit can’t route traffic to it.
+
+3. **Missing env vars in the *deployment***
+
+   * Replit deployments don’t automatically copy all “Secrets” from your workspace.
+     Go to **Deploy → Environment Variables** and add the production ones:
+
+     * `RESEND_API_KEY`, `JWT_SECRET`, `PUBLIC_URL`, DB URL, SUPABASE/FIREBASE keys, etc.
+   * Missing `PUBLIC_URL` commonly breaks magic-link redirects at boot.
+
+4. **Build/Start crash on wake**
+
+   * Open **Deploy → Logs**. You’ll usually see:
+
+     * Module not found
+     * Prisma/DB can’t connect
+     * Syntax error
+     * `Error: address in use`
+   * Fix the logged error, redeploy.
+
+5. **Health check failing**
+
+   * In **Deploy → Health check**, make sure the path returns `200` quickly (default `/`).
+     If your root redirects to auth or does heavy work, point the health check to a cheap endpoint:
+
+     ```js
+     app.get('/healthz', (req,res)=>res.send('ok'));
+     ```
+
+     Set health check to `/healthz`.
+
+6. **Server never finishes starting**
+
+   * Long migrations at boot? Move them to a deploy step, not server startup.
+   * Don’t await external calls before `app.listen`.
+
+7. **Wrong domain in the email link**
+
+   * Your email should point to the **deployment domain**, not the editor/preview URL.
+     Example: `https://your-app.username.repl.co/auth/magic?token=...`
+   * If you switched to a custom domain, update the link generator and **Authorized Domains** (Firebase/Supabase).
+
+8. **Cold-start + crash loop**
+
+   * If the server starts only in dev, not prod, check `NODE_ENV` branches and ensure production config exists.
+
+---
+
+### Magic-link specific gotchas (after it boots)
+
+* **Token in logs**: Make sure you’re not logging the raw token (security + log spam).
+* **One-time/expiry**: Return a friendly expired page, not 500s.
+* **Cookie**: Use httpOnly + Secure + SameSite=Lax, set the cookie **after** verifying the token.
+
+---
+
+### Minimal Express template that “always wakes”
+
+```js
+import express from 'express';
+const app = express();
+
+app.get('/healthz', (req, res) => res.send('ok'));
+
+app.get('/', (req, res) => res.send('running'));
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, '0.0.0.0', () => console.log('Server on', PORT));
+```
+
+* Set **Health check** to `/healthz`.
+* Start command: `node server.js` (or your file name).
+
+---
+
+### My take
+
+I believe this is **deployment boot failure**, not your email flow. Open **Deploy → Logs**, fix the first error, ensure you’re listening on `process.env.PORT`, and copy env vars to the deployment. Nine times out of ten, that clears the “Unable To Wake Up.”
+
+If you paste the log snippet here, I’ll pinpoint the exact line to change.

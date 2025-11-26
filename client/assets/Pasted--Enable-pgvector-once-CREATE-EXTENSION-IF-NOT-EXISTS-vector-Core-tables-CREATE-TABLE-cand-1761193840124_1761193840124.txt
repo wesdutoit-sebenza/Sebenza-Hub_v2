@@ -1,0 +1,106 @@
+-- Enable pgvector once
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Core tables
+CREATE TABLE candidates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  full_name TEXT,
+  headline TEXT,
+  email TEXT,
+  phone TEXT,
+  city TEXT,
+  country TEXT,
+  links JSONB DEFAULT '{}'::jsonb,
+  summary TEXT,
+  work_authorization TEXT,
+  availability TEXT,
+  salary_expectation TEXT,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE resumes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  candidate_id UUID REFERENCES candidates(id) ON DELETE CASCADE,
+  filename TEXT,
+  filesize_bytes BIGINT,
+  parsed_ok BOOLEAN DEFAULT TRUE,
+  parse_notes TEXT,
+  raw_text TEXT,          -- optional: store extracted text
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE experiences (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  candidate_id UUID REFERENCES candidates(id) ON DELETE CASCADE,
+  title TEXT,
+  company TEXT,
+  industry TEXT,
+  location TEXT,
+  start_date TEXT,
+  end_date TEXT,
+  is_current BOOLEAN DEFAULT FALSE,
+  bullets TEXT[] DEFAULT '{}'
+);
+
+CREATE TABLE education (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  candidate_id UUID REFERENCES candidates(id) ON DELETE CASCADE,
+  institution TEXT,
+  qualification TEXT,
+  location TEXT,
+  grad_date TEXT
+);
+
+CREATE TABLE certifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  candidate_id UUID REFERENCES candidates(id) ON DELETE CASCADE,
+  name TEXT,
+  issuer TEXT,
+  year TEXT
+);
+
+CREATE TABLE projects (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  candidate_id UUID REFERENCES candidates(id) ON DELETE CASCADE,
+  name TEXT,
+  what TEXT,
+  impact TEXT,
+  link TEXT
+);
+
+CREATE TABLE awards (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  candidate_id UUID REFERENCES candidates(id) ON DELETE CASCADE,
+  name TEXT,
+  by_whom TEXT,
+  year TEXT,
+  note TEXT
+);
+
+-- Skills (normalised)
+CREATE TABLE skills (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT UNIQUE
+);
+
+CREATE TABLE candidate_skills (
+  candidate_id UUID REFERENCES candidates(id) ON DELETE CASCADE,
+  skill_id UUID REFERENCES skills(id) ON DELETE CASCADE,
+  kind TEXT CHECK (kind IN ('technical','tools','soft')),
+  PRIMARY KEY (candidate_id, skill_id, kind)
+);
+
+-- Embeddings for semantic search
+-- choose your dimension based on the embedding model (e.g., 1536 or 3072)
+CREATE TABLE candidate_embeddings (
+  candidate_id UUID PRIMARY KEY REFERENCES candidates(id) ON DELETE CASCADE,
+  embedding vector(1536)
+);
+
+-- Helpful indexes
+CREATE INDEX idx_candidates_email ON candidates(email);
+CREATE INDEX idx_candidates_city ON candidates(city);
+CREATE INDEX idx_experiences_company ON experiences(company);
+CREATE INDEX idx_skills_name ON skills USING GIN (to_tsvector('simple', name));
+CREATE INDEX idx_candidate_embeddings ON candidate_embeddings USING ivfflat (embedding vector_l2_ops) WITH (lists = 100);
