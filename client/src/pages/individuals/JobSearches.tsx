@@ -65,6 +65,8 @@ export default function IndividualJobSearches() {
   };
 
   const handleApplyViaWhatsApp = (job: Job) => {
+    if (!job.whatsappContact) return;
+    
     const message = `Hi! I'm interested in the ${job.title} position at ${job.company}. I found this opportunity on Sebenza Hub.`;
     const whatsappUrl = `https://wa.me/${job.whatsappContact.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
     window.open(whatsappUrl, '_blank');
