@@ -17,16 +17,45 @@ app.use(compression({
   threshold: 0  // Compress all responses regardless of size
 }));
 
-// CORS configuration for external browser access
-// More permissive for Safari and other browsers
+// CORS configuration for cross-origin requests (Vercel frontend -> Render backend)
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : [];
+
+const isProduction = process.env.NODE_ENV === 'production';
+const isReplitEnv = !!process.env.REPLIT_DEPLOYMENT || !!process.env.REPLIT_DEV_DOMAIN;
+
 app.use(cors({
   origin: function(origin, callback) {
-    // Allow any origin in development
-    callback(null, true);
+    // Allow requests with no origin (mobile apps, curl, etc.)
+    if (!origin) return callback(null, true);
+    
+    // In development (not Replit production), allow any origin
+    if (!isProduction && !process.env.REPLIT_DEPLOYMENT) {
+      return callback(null, true);
+    }
+    
+    // Allow Replit domains (both dev and production)
+    if (origin.includes('.replit.app') || origin.includes('.replit.dev')) {
+      return callback(null, true);
+    }
+    
+    // In production with ALLOWED_ORIGINS set, check against the list
+    if (ALLOWED_ORIGINS.length > 0 && ALLOWED_ORIGINS.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    // In production without ALLOWED_ORIGINS, only allow Replit domains (already handled above)
+    // This prevents open CORS in production
+    if (isProduction && ALLOWED_ORIGINS.length === 0 && !isReplitEnv) {
+      console.warn(`CORS: Blocked origin ${origin} - ALLOWED_ORIGINS not configured`);
+    }
+    
+    callback(new Error('Not allowed by CORS'));
   },
   credentials: true, // Allow cookies
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'X-Requested-With'],
   exposedHeaders: ['Set-Cookie'],
 }));
 
@@ -57,6 +86,9 @@ setTimeout(async () => {
   }
 }, 2000); // Wait 2 seconds after startup to let pool warm up
 
+// Cross-origin mode only in production with ALLOWED_ORIGINS set (Vercel/Render setup)
+const isCrossOriginProduction = isProduction && ALLOWED_ORIGINS.length > 0;
+
 app.use(
   session({
     store: new PgSession({
@@ -70,8 +102,10 @@ app.use(
     cookie: {
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production" || !!process.env.REPLIT_DEPLOYMENT,
-      sameSite: "lax", // Use "lax" for same-site cookies (frontend and backend on same domain)
+      // In production or Replit deployment, use secure cookies
+      // In cross-origin production (Vercel/Render), also use sameSite: none
+      secure: isProduction || !!process.env.REPLIT_DEPLOYMENT,
+      sameSite: isCrossOriginProduction ? "none" : "lax",
       domain: undefined, // Auto-detect domain
     },
     proxy: true, // Trust the reverse proxy
