@@ -1,4 +1,0 @@
-{ "format":"likert", "stem":"I stay calm with multiple customers waiting.", "scale":5, "reverse":false, "construct":"stress_tolerance_advisory" }
-
-
-
